@@ -1,0 +1,1571 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Roster</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,500;1,600&family=Jost:wght@300;400;500;600&display=swap');
+
+:root{
+  --paper:#FBF3E6;
+  --paper-raised:#FFFFFF;
+  --ink:#2B1B12;
+  --ink-soft:#5A4A3D;
+  --ink-faint:#8C7862;
+  --line:#DBBE83;
+  --line-soft:#EEDFBA;
+  --maroon:#6E1F2B;
+  --maroon-deep:#4A141C;
+  --accent:#6E1F2B;
+  --accent-ink:#4A141C;
+  --accent-soft:#F2E0DE;
+  --gold:#C79A3C;
+  --gold-light:#E7C77E;
+  --gold-soft:#F3E6C9;
+  --rust:#A8402E;
+  --rust-soft:#F3DFD9;
+}
+
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;height:100%;}
+body{
+  background:var(--paper);
+  color:var(--ink);
+  font-family:'Jost',system-ui,sans-serif;
+  font-size:14px;
+  line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+}
+h1,h2,h3{
+  font-family:'Cormorant Garamond',Georgia,serif;
+  font-weight:600;
+  margin:0;
+  color:var(--ink);
+}
+button{font-family:inherit;font-size:inherit;}
+input,select,textarea{font-family:inherit;font-size:14px;}
+::selection{background:var(--accent-soft);}
+a{color:inherit;}
+
+#app{min-height:100%;}
+
+/* ---------- Login ---------- */
+.login-screen{
+  min-height:100vh;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:24px;
+}
+.login-card{
+  width:100%;
+  max-width:380px;
+  background:var(--paper-raised);
+  border:1px solid var(--line);
+  border-radius:10px;
+  padding:36px 32px;
+  box-shadow:0 14px 34px rgba(74,20,28,0.08);
+}
+.login-mark{
+  font-family:'Cormorant Garamond',serif;
+  font-style:italic;
+  font-weight:500;
+  font-size:16px;
+  color:var(--maroon-deep);
+  margin-bottom:4px;
+}
+.login-card h1{font-size:24px;margin-bottom:6px;}
+.login-sub{color:var(--ink-soft);font-size:13px;margin-bottom:28px;}
+.field{margin-bottom:16px;}
+.field label{display:block;font-size:12px;color:var(--ink-soft);margin-bottom:6px;}
+.field input, .field select, .field textarea{
+  width:100%;
+  padding:10px 12px;
+  border:1px solid var(--line);
+  background:#fff;
+  color:var(--ink);
+  outline:none;
+}
+.field input:focus, .field select:focus, .field textarea:focus{border-color:var(--accent);}
+.field-hint{font-size:11.5px;color:var(--ink-faint);margin-top:4px;}
+.checkbox-field{display:flex;align-items:flex-start;gap:8px;margin-bottom:16px;}
+.checkbox-field input{width:auto;margin-top:3px;}
+.checkbox-field label{font-size:12.5px;color:var(--ink-soft);}
+.person-list{display:flex;flex-direction:column;gap:10px;}
+.person-btn{
+  display:flex;
+  flex-direction:column;
+  align-items:flex-start;
+  gap:2px;
+  width:100%;
+  padding:16px 18px;
+  border:1px solid var(--line);
+  border-radius:8px;
+  background:#fff;
+  cursor:pointer;
+  text-align:left;
+  transition:border-color .15s ease, background .15s ease;
+}
+.person-btn:hover{border-color:var(--accent);background:var(--accent-soft);}
+.person-name{font-family:'Cormorant Garamond',serif;font-weight:600;font-size:16px;color:var(--ink);}
+.person-role{font-size:12.5px;color:var(--ink-soft);}
+.role-toggle{display:flex;gap:8px;}
+.role-btn{
+  flex:1;
+  padding:11px;
+  border:1px solid var(--line);
+  border-radius:999px;
+  background:#fff;
+  cursor:pointer;
+  text-align:center;
+  color:var(--ink-soft);
+  transition:border-color .15s ease, background .15s ease, color .15s ease;
+}
+.role-btn.selected{border-color:var(--maroon);background:var(--accent-soft);color:var(--maroon-deep);font-weight:500;}
+.role-btn:focus-visible, button:focus-visible, input:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+.primary-btn{
+  width:100%;
+  margin-top:8px;
+  padding:12px;
+  background:var(--maroon);
+  color:var(--gold-light);
+  border:none;
+  border-radius:999px;
+  cursor:pointer;
+  font-weight:500;
+  transition:transform .15s ease, box-shadow .15s ease, background .15s ease;
+}
+.primary-btn:hover{background:var(--maroon-deep);transform:translateY(-1px);box-shadow:0 8px 20px rgba(74,20,28,0.22);}
+.primary-btn:disabled{background:var(--ink-faint);color:#fff;cursor:not-allowed;transform:none;box-shadow:none;}
+.login-error{color:var(--rust);font-size:12px;margin-top:10px;}
+
+/* ---------- Shell ---------- */
+.shell{display:flex;min-height:100vh;}
+.sidebar{
+  width:220px;
+  flex-shrink:0;
+  background:var(--paper-raised);
+  border-right:1px solid var(--line);
+  padding:24px 0;
+  position:sticky;
+  top:0;
+  height:100vh;
+  overflow-y:auto;
+}
+.sidebar-header{padding:0 24px 20px;border-bottom:1px solid var(--line-soft);margin-bottom:12px;}
+.sidebar-mark{font-family:'Cormorant Garamond',serif;font-style:italic;font-size:17px;color:var(--maroon-deep);}
+.sidebar-user{font-size:12px;color:var(--ink-soft);margin-top:6px;}
+.sidebar-user strong{color:var(--ink);font-weight:500;}
+nav.nav-list{display:flex;flex-direction:column;}
+.nav-item{
+  padding:11px 24px;
+  border-left:3px solid transparent;
+  color:var(--ink-soft);
+  cursor:pointer;
+  font-size:13.5px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+}
+.nav-item:hover{background:var(--accent-soft);color:var(--ink);}
+.nav-item.active{border-left-color:var(--accent);color:var(--accent-ink);font-weight:500;background:var(--accent-soft);}
+.nav-badge{
+  font-size:11px;
+  background:var(--rust-soft);
+  color:var(--rust);
+  padding:1px 7px;
+  border-radius:9px;
+}
+.sidebar-footer{padding:16px 24px 0;margin-top:16px;border-top:1px solid var(--line-soft);}
+.signout-btn{background:none;border:none;color:var(--ink-faint);cursor:pointer;font-size:12px;padding:0;}
+.signout-btn:hover{color:var(--rust);}
+
+.main{flex:1;padding:40px 44px;max-width:980px;}
+.view-header{margin-bottom:28px;display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;}
+.view-header h2{font-size:22px;}
+.view-sub{color:var(--ink-soft);font-size:13px;margin-top:4px;}
+
+.mobile-topbar{display:none;}
+
+/* ---------- Buttons ---------- */
+.btn{
+  padding:9px 18px;
+  border:1px solid var(--line);
+  border-radius:999px;
+  background:#fff;
+  color:var(--ink);
+  cursor:pointer;
+  transition:border-color .15s ease, color .15s ease;
+}
+.btn:hover{border-color:var(--maroon);color:var(--maroon-deep);}
+.btn-accent{background:var(--maroon);border-color:var(--maroon);color:var(--gold-light);}
+.btn-accent:hover{background:var(--maroon-deep);border-color:var(--maroon-deep);color:var(--gold-light);}
+.btn-sm{padding:5px 14px;font-size:12.5px;}
+.btn-text{background:none;border:none;color:var(--ink-soft);cursor:pointer;padding:4px 6px;}
+.btn-text:hover{color:var(--rust);}
+.btn-text.approve:hover{color:var(--maroon-deep);}
+
+/* ---------- Ledger rows ---------- */
+.ledger{border-top:1px solid var(--line);}
+.ledger-row{
+  display:grid;
+  padding:14px 4px;
+  border-bottom:1px solid var(--line-soft);
+  align-items:center;
+  gap:12px;
+}
+.ledger-row.head{
+  color:var(--ink-faint);
+  font-size:11.5px;
+  padding-bottom:10px;
+  border-bottom:1px solid var(--line);
+}
+.ledger-row:hover{background:rgba(0,0,0,0.015);}
+.cell-name{font-weight:500;}
+.cell-sub{color:var(--ink-soft);font-size:12.5px;}
+.member-code{
+  font-family:'Cormorant Garamond',serif;
+  font-weight:600;
+  letter-spacing:.03em;
+  font-size:11px;
+  color:var(--maroon-deep);
+  background:var(--gold-soft);
+  border:1px solid var(--line);
+  border-radius:999px;
+  padding:1px 8px;
+  display:inline-block;
+  margin-bottom:2px;
+}
+.tag{
+  display:inline-block;
+  font-size:11.5px;
+  padding:2px 11px;
+  border-radius:999px;
+}
+.tag-active{background:var(--accent-soft);color:var(--maroon-deep);}
+.tag-inactive{background:var(--line-soft);color:var(--ink-faint);}
+.tag-pending{background:var(--gold-soft);color:#8A6A1F;}
+.tag-approved{background:var(--accent-soft);color:var(--maroon-deep);}
+.tag-denied{background:var(--rust-soft);color:var(--rust);}
+
+.empty-state{
+  padding:48px 24px;
+  text-align:center;
+  color:var(--ink-faint);
+  border:1px dashed var(--line);
+  border-radius:10px;
+  margin-top:8px;
+}
+.empty-state p{margin:0 0 14px;}
+
+/* ---------- Stat cards ---------- */
+.stat-row{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-bottom:32px;}
+.stat{background:var(--paper-raised);padding:20px;}
+.stat-num{font-family:'Cormorant Garamond',serif;font-size:32px;color:var(--maroon-deep);}
+.stat-label{font-size:12px;color:var(--ink-soft);margin-top:4px;}
+
+.section-title{font-size:14px;font-weight:600;margin:32px 0 12px;font-family:'Cormorant Garamond',serif;}
+.section-title:first-child{margin-top:0;}
+.tab-row{display:flex;gap:8px;margin-bottom:8px;}
+.tab-btn{
+  padding:8px 18px;
+  border:1px solid var(--line);
+  border-radius:999px;
+  background:#fff;
+  color:var(--ink-soft);
+  cursor:pointer;
+  font-size:13px;
+}
+.tab-btn.active{background:var(--accent-soft);border-color:var(--maroon);color:var(--maroon-deep);font-weight:500;}
+
+/* ---------- Modal ---------- */
+.overlay{
+  position:fixed;inset:0;background:rgba(33,38,43,0.4);
+  display:flex;align-items:flex-start;justify-content:center;
+  padding:40px 16px;overflow-y:auto;z-index:50;
+}
+.panel{
+  background:var(--paper-raised);
+  border:1px solid var(--line);
+  border-radius:10px;
+  width:100%;max-width:460px;
+  padding:28px;
+}
+.panel h3{font-size:18px;margin-bottom:20px;}
+.panel-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.panel-actions{display:flex;gap:10px;margin-top:20px;justify-content:flex-end;}
+
+/* ---------- Toast ---------- */
+.toast{
+  position:fixed;
+  left:50%;
+  bottom:24px;
+  transform:translateX(-50%) translateY(20px);
+  background:var(--ink);
+  color:#fff;
+  padding:11px 16px;
+  border-radius:999px;
+  font-size:13px;
+  display:flex;
+  align-items:center;
+  gap:12px;
+  opacity:0;
+  pointer-events:none;
+  transition:opacity .18s ease, transform .18s ease;
+  z-index:100;
+  max-width:90vw;
+  box-shadow:0 4px 16px rgba(74,20,28,0.25);
+}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0);pointer-events:auto;}
+.toast-error{background:var(--rust);}
+.toast-success{background:var(--maroon-deep);}
+.toast-retry{
+  background:rgba(255,255,255,0.15);
+  border:1px solid rgba(255,255,255,0.4);
+  color:#fff;
+  border-radius:999px;
+  padding:4px 12px;
+  cursor:pointer;
+  flex-shrink:0;
+}
+.toast-retry:hover{background:rgba(255,255,255,0.25);}
+
+@media (max-width:820px){
+  .sidebar{display:none;}
+  .mobile-topbar{
+    display:flex;
+    align-items:stretch;
+    background:var(--paper-raised);
+    border-bottom:1px solid var(--line);
+    position:sticky;top:0;z-index:20;
+  }
+  .mobile-topbar-nav{display:flex;overflow-x:auto;flex:1;min-width:0;}
+  .mobile-topbar .nav-item{border-left:none;border-bottom:3px solid transparent;white-space:nowrap;padding:14px 16px;}
+  .mobile-topbar .nav-item.active{border-bottom-color:var(--accent);}
+  .mobile-signout{
+    flex-shrink:0;
+    border:none;
+    border-left:1px solid var(--line);
+    background:none;
+    color:var(--ink-faint);
+    font-size:12.5px;
+    padding:0 16px;
+    cursor:pointer;
+  }
+  .mobile-signout:active{color:var(--rust);}
+  .main{padding:24px 18px 60px;}
+  .stat-row{grid-template-columns:repeat(2,1fr);}
+  .panel-row{grid-template-columns:1fr;}
+  .ledger-row{font-size:13px;}
+}
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+(function(){
+  "use strict";
+
+  var VIEWS = ["dashboard","members","projects","intake","receipts","testimonials","services","leave","performance"];
+  var VIEW_LABELS = {dashboard:"Dashboard",members:"Members",projects:"Projects",intake:"Intake",receipts:"Receipts",testimonials:"Testimonials",services:"Services",leave:"Leave requests",performance:"Performance notes"};
+
+  var state = {
+    pin:null,
+    user:null,
+    view:"dashboard",
+    members:[],
+    leave:[],
+    performance:[],
+    projects:[],
+    handovers:[],
+    receipts:[],
+    testimonials:[],
+    kycRecords:[],
+    services:[],
+    sheetsConfigured:{bookings:false, kyc:false, enrollment:false},
+    memberEnrollmentFormUrl:"",
+    intakeTab:"bookings",
+    intakeRows:{bookings:null, kyc:null, enrollment:null},
+    intakeLoading:false,
+    loading:true,
+    modal:null
+  };
+
+  function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+  function todayStr(){ return new Date().toISOString().slice(0,10); }
+  function fmtDate(d){
+    if(!d) return "—";
+    var dt = new Date(d + "T00:00:00");
+    if(isNaN(dt)) return d;
+    return dt.toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"});
+  }
+  function esc(s){
+    return String(s==null?"":s).replace(/[&<>"']/g,function(c){
+      return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
+    });
+  }
+  function memberName(id){
+    var m = state.members.find(function(x){return x.id===id;});
+    return m ? m.name : "Unknown";
+  }
+  function memberCode(id){
+    var m = state.members.find(function(x){return x.id===id;});
+    return m ? m.memberCode : "";
+  }
+
+  // ---------------- Session ----------------
+  function loadSession(){
+    try{
+      var raw = localStorage.getItem("roster_session");
+      if(!raw) return;
+      var s = JSON.parse(raw);
+      state.pin = s.pin || null;
+      if(s.name && s.role) state.user = {name:s.name, role:s.role};
+    }catch(e){}
+  }
+  function saveSession(){
+    try{
+      localStorage.setItem("roster_session", JSON.stringify({
+        pin: state.pin,
+        name: state.user ? state.user.name : null,
+        role: state.user ? state.user.role : null
+      }));
+    }catch(e){}
+  }
+  function clearSession(){
+    try{ localStorage.removeItem("roster_session"); }catch(e){}
+  }
+
+  // ---------------- API ----------------
+  async function apiGet(){
+    var res = await fetch("/api/roster", { headers: { "x-roster-pin": state.pin } });
+    if(res.status === 401) throw {authError:true};
+    var data = await res.json();
+    if(!data.ok) throw new Error(data.error || "Request failed");
+    return data;
+  }
+  async function apiPost(resource, action, payload){
+    var res = await fetch("/api/roster", {
+      method:"POST",
+      headers: { "Content-Type":"application/json", "x-roster-pin": state.pin },
+      body: JSON.stringify({resource:resource, action:action, payload:payload})
+    });
+    if(res.status === 401) throw {authError:true};
+    var data = await res.json();
+    if(!data.ok) throw new Error(data.error || "Request failed");
+    return data;
+  }
+
+  async function loadAll(){
+    try{
+      var data = await apiGet();
+      state.members = data.members;
+      state.leave = data.leave;
+      state.performance = data.performance;
+      state.projects = data.projects;
+      state.handovers = data.handovers;
+      state.receipts = data.receipts || [];
+      state.testimonials = data.testimonials || [];
+      state.kycRecords = data.kycRecords || [];
+      state.services = data.services || [];
+      state.sheetsConfigured = data.sheetsConfigured || state.sheetsConfigured;
+      state.memberEnrollmentFormUrl = data.memberEnrollmentFormUrl || "";
+    }catch(err){
+      if(err && err.authError){
+        state.pin = null;
+        clearSession();
+        window.__rosterPinFailed = true;
+      }else{
+        console.error("Load failed", err);
+        showToast("Couldn't load the latest roster data.", "error", loadAll);
+      }
+    }
+    state.loading = false;
+    render();
+  }
+
+  var toastTimer = null;
+  function showToast(msg, kind, retryFn){
+    var el = document.getElementById("toast");
+    if(!el){
+      el = document.createElement("div");
+      el.id = "toast";
+      el.className = "toast";
+      document.body.appendChild(el);
+    }
+    el.className = "toast toast-" + (kind||"info") + " show";
+    el.innerHTML = '<span>'+esc(msg)+'</span>';
+    if(retryFn){
+      var btn = document.createElement("button");
+      btn.className = "toast-retry";
+      btn.textContent = "Retry";
+      btn.addEventListener("click", function(){ hideToast(); retryFn(); });
+      el.appendChild(btn);
+    }
+    if(toastTimer) clearTimeout(toastTimer);
+    if(!retryFn){ toastTimer = setTimeout(hideToast, 2200); }
+  }
+  function hideToast(){
+    var el = document.getElementById("toast");
+    if(el) el.className = "toast";
+  }
+
+  async function mutate(resource, action, payload, successMsg, onSuccess){
+    try{
+      var result = await apiPost(resource, action, payload);
+      showToast(successMsg || "Saved.", "success");
+      await loadAll();
+      if(onSuccess) onSuccess(result);
+      return result;
+    }catch(err){
+      if(err && err.authError){
+        state.pin = null;
+        clearSession();
+        render();
+        return;
+      }
+      console.error("Save failed", err);
+      showToast("Couldn't save — try again.", "error", function(){ mutate(resource, action, payload, successMsg, onSuccess); });
+    }
+  }
+
+  // ---------------- Actions ----------------
+  function checkPin(pin){
+    state.pin = pin;
+    saveSession();
+    loadAll();
+  }
+  function signIn(name, role){
+    state.user = {name:name, role:role};
+    state.view = "dashboard";
+    saveSession();
+    render();
+  }
+  function signOut(){
+    state.user = null;
+    state.pin = null;
+    clearSession();
+    render();
+  }
+  function setView(v){
+    state.view = v;
+    render();
+    if(v==="intake" && state.intakeRows[state.intakeTab] === null){ loadIntake(state.intakeTab); }
+  }
+  function openModal(type, data){ state.modal = {type:type, data:data||null}; render(); }
+  function closeModal(){ state.modal = null; render(); }
+
+  function saveMember(form){
+    var isEdit = !!form.id;
+    var rec = {
+      id: form.id || uid(),
+      name: form.name.trim(),
+      title: form.title.trim(),
+      department: form.department.trim(),
+      email: form.email.trim(),
+      phone: form.phone.trim(),
+      location: form.location.trim(),
+      startDate: form.startDate || todayStr(),
+      status: form.status || "active"
+    };
+    closeModal();
+    mutate("members", isEdit ? "update" : "create", rec, isEdit ? "Saved." : "Member added.");
+  }
+  function deleteMember(id){
+    if(!confirm("Remove this member from the roster? This won't delete their leave or performance history.")) return;
+    mutate("members", "delete", {id:id});
+  }
+
+  function saveLeave(form){
+    var rec = {
+      id:uid(), memberId:form.memberId, type:form.type, startDate:form.startDate, endDate:form.endDate,
+      note:(form.note||"").trim(), requestedBy: state.user.name
+    };
+    closeModal();
+    mutate("leave", "create", rec);
+  }
+  function setLeaveStatus(id, status){ mutate("leave", "setStatus", {id:id, status:status}); }
+  function deleteLeave(id){ mutate("leave", "delete", {id:id}); }
+
+  function savePerformance(form){
+    var rec = { id:uid(), memberId:form.memberId, date:form.date||todayStr(), rating:form.rating||"", note:form.note.trim(), author: state.user.name };
+    closeModal();
+    mutate("performance", "create", rec);
+  }
+  function deletePerformance(id){ mutate("performance", "delete", {id:id}); }
+
+  function saveProject(form){
+    var rec = {
+      id:uid(), name:form.name.trim(), description:(form.description||"").trim(), memberId:form.memberId, note:(form.note||"").trim(),
+      clientName:(form.clientName||"").trim(), service:form.service||"", budget:form.budget?Number(form.budget):null,
+      location:(form.location||"").trim(), eventDate:form.eventDate||null
+    };
+    closeModal();
+    mutate("projects", "create", rec, "Project created — the assigned member has been emailed.");
+  }
+  function handoverProject(form){
+    var rec = { id:form.id, toMemberId:form.toMemberId, note:(form.note||"").trim(), notifyPrevious:form.notifyPrevious };
+    closeModal();
+    mutate("projects", "handover", rec, "Handed over — notification emails sent.");
+  }
+  function deleteProject(id){
+    if(!confirm("Delete this project and its handover history?")) return;
+    mutate("projects", "delete", {id:id});
+  }
+  function createProjectFromBooking(row){
+    openModal("project", {
+      prefill:true,
+      clientName: row["Client Name"]||"", service: row["Service"]||"",
+      location: row["Location"]||"", budget: row["Budget"]||"",
+      eventDate: row["Event Date"]||"", description: row["Notes"]||""
+    });
+  }
+
+  // ---------------- Receipts ----------------
+  function generateReceiptPdf(rec){
+    try{
+      var jsPDFCtor = window.jspdf && window.jspdf.jsPDF;
+      if(!jsPDFCtor){ showToast("PDF library didn't load — try again in a moment.", "error"); return; }
+      var doc = new jsPDFCtor({ unit:"pt", format:"a5" });
+      var maroon = [110,31,43];
+      doc.setFont("times","bold"); doc.setFontSize(22); doc.setTextColor(maroon[0],maroon[1],maroon[2]);
+      doc.text("Samskar", 40, 50);
+      doc.setFont("times","italic"); doc.setFontSize(11); doc.setTextColor(90,74,61);
+      doc.text("crafting traditions with trend", 40, 68);
+      doc.setDrawColor(199,154,60); doc.line(40, 80, 380, 80);
+
+      doc.setFont("helvetica","normal"); doc.setFontSize(11); doc.setTextColor(43,27,18);
+      var y = 108;
+      function line(label, value){
+        doc.setFont("helvetica","bold"); doc.text(label, 40, y);
+        doc.setFont("helvetica","normal"); doc.text(String(value||"—"), 160, y);
+        y += 22;
+      }
+      doc.setFont("times","bold"); doc.setFontSize(15); doc.text("Receipt", 40, 96);
+      line("Receipt No.", rec.receiptNo);
+      line("Date", rec.receiptDate);
+      line("Client", rec.clientName);
+      if(rec.contact) line("Contact", rec.contact);
+      if(rec.service) line("Service", rec.service);
+      line("Payment mode", rec.paymentMode || "—");
+      if(rec.note) line("Note", rec.note);
+
+      doc.setDrawColor(219,190,131); doc.line(40, y, 380, y); y += 26;
+      doc.setFont("times","bold"); doc.setFontSize(16);
+      doc.text("Amount paid: Rs. " + Number(rec.amount).toLocaleString('en-IN'), 40, y);
+      y += 34;
+      doc.setFont("helvetica","normal"); doc.setFontSize(9); doc.setTextColor(140,120,98);
+      doc.text("Issued by " + (rec.issuedBy || "Samskar") + " · Generated via The Roster", 40, y);
+
+      doc.save((rec.receiptNo || "receipt") + ".pdf");
+    }catch(err){
+      console.error("PDF generation failed", err);
+      showToast("Couldn't generate the PDF.", "error");
+    }
+  }
+  function saveReceipt(form){
+    var rec = {
+      id:uid(), clientName:form.clientName.trim(), contact:(form.contact||"").trim(), service:form.service||"",
+      amount:Number(form.amount), paymentMode:form.paymentMode||"", projectId:form.projectId||null,
+      note:(form.note||"").trim(), issuedBy: state.user.name, receiptDate:form.receiptDate||todayStr()
+    };
+    closeModal();
+    mutate("receipts", "create", rec, "Receipt saved.", function(result){
+      generateReceiptPdf(Object.assign({}, rec, { receiptNo: result && result.receiptNo }));
+    });
+  }
+  function deleteReceipt(id){ mutate("receipts", "delete", {id:id}); }
+
+  // ---------------- Testimonials ----------------
+  function saveTestimonial(form){
+    var rec = { id:uid(), clientName:form.clientName.trim(), body:form.body.trim(), rating:form.rating?Number(form.rating):null, source:form.source||"Manual", date:form.date||null };
+    closeModal();
+    mutate("testimonials", "create", rec);
+  }
+  function deleteTestimonial(id){ mutate("testimonials", "delete", {id:id}); }
+
+  // ---------------- KYC ----------------
+  function saveKyc(form){
+    var rec = { id:uid(), fullName:form.fullName.trim(), idType:form.idType||"", idNumber:(form.idNumber||"").trim(), phone:(form.phone||"").trim(), email:(form.email||"").trim(), address:(form.address||"").trim(), source:form.source||"Manual" };
+    closeModal();
+    mutate("kyc", "create", rec);
+  }
+  function deleteKyc(id){ mutate("kyc", "delete", {id:id}); }
+  function saveKycFromRow(row){
+    mutate("kyc", "create", {
+      id:uid(), fullName: row["Full Name"]||"", idType: row["ID Type"]||"", idNumber: row["ID Number"]||"",
+      phone: row["Phone"]||"", email: row["Email"]||"", address: row["Address"]||"", source:"Tally form"
+    }, "Saved to KYC records.");
+  }
+
+  // ---------------- Services ----------------
+  function saveService(form){
+    var isEdit = !!form.id;
+    var rec = { id:form.id||uid(), name:form.name.trim(), description:(form.description||"").trim(), active:form.active, sortOrder:form.sortOrder?Number(form.sortOrder):0 };
+    closeModal();
+    mutate("services", isEdit?"update":"create", rec);
+  }
+  function deleteService(id){ mutate("services", "delete", {id:id}); }
+
+  // ---------------- Member invite ----------------
+  function inviteMember(form){
+    closeModal();
+    mutate("members", "invite", { name:form.name.trim(), email:form.email.trim() }, "Invite sent.");
+  }
+  function addMemberFromRow(row){
+    mutate("members", "create", {
+      id:uid(), name: row["Full Name"]||"", title: row["Job Title"]||"", department: row["Department"]||"",
+      email: row["Email"]||"", phone: row["Phone"]||"", location: row["Location"]||"", startDate: todayStr(), status:"active"
+    }, "Added to roster.");
+  }
+
+  // ---------------- Intake (Tally responses) ----------------
+  async function loadIntake(key){
+    state.intakeLoading = true;
+    render();
+    try{
+      var result = await apiPost("sheet", "fetch", { key:key });
+      state.intakeRows[key] = result.rows;
+      state.sheetsConfigured[key] = result.configured;
+    }catch(err){
+      if(err && err.authError){ state.pin=null; clearSession(); render(); return; }
+      console.error("Intake fetch failed", err);
+      showToast((err && err.message) || "Couldn't load responses from Tally.", "error");
+      state.intakeRows[key] = [];
+    }
+    state.intakeLoading = false;
+    render();
+  }
+  function setIntakeTab(tab){
+    state.intakeTab = tab;
+    render();
+    if(state.intakeRows[tab] === null){ loadIntake(tab); }
+  }
+
+  // ---------------- Rendering ----------------
+  function render(){
+    var app = document.getElementById("app");
+    if(!state.pin){
+      app.innerHTML = renderPin();
+      bindPin();
+      return;
+    }
+    if(!state.user){
+      app.innerHTML = renderLogin();
+      bindLogin();
+      return;
+    }
+    app.innerHTML = renderShell();
+    bindShell();
+  }
+
+  function renderPin(){
+    return (
+      '<div class="login-screen">'+
+        '<div class="login-card">'+
+          '<div class="login-mark">The Roster</div>'+
+          '<h1>Enter passcode</h1>'+
+          '<p class="login-sub">This portal is private to Samskar\'s CEO and Web Manager. Enter the shared passcode to continue.</p>'+
+          '<div class="field"><label for="in-pin">Passcode</label><input id="in-pin" type="password" inputmode="numeric" placeholder="\u2022\u2022\u2022\u2022\u2022\u2022" autocomplete="off"></div>'+
+          '<button class="primary-btn" id="btn-pin-submit">Continue</button>'+
+          '<div class="login-error" id="pin-err" style="display:none;">That passcode isn\'t right. Try again.</div>'+
+        '</div>'+
+      '</div>'
+    );
+  }
+  function bindPin(){
+    var pinInput = document.getElementById("in-pin");
+    function submit(){
+      var v = pinInput.value;
+      if(!v){ return; }
+      checkPin(v);
+    }
+    document.getElementById("btn-pin-submit").addEventListener("click", submit);
+    pinInput.addEventListener("keydown", function(e){ if(e.key==="Enter") submit(); });
+    pinInput.focus();
+    if(window.__rosterPinFailed){
+      document.getElementById("pin-err").style.display = "block";
+      window.__rosterPinFailed = false;
+    }
+  }
+
+  function renderLogin(){
+    return (
+      '<div class="login-screen">'+
+        '<div class="login-card">'+
+          '<div class="login-mark">The Roster</div>'+
+          '<h1>Sign in</h1>'+
+          '<p class="login-sub">Shared workspace for member records, projects, leave, and performance notes.</p>'+
+          '<div class="field"><label for="in-name">Your name</label><input id="in-name" type="text" placeholder="e.g. Gurumurthy H R" autocomplete="name"></div>'+
+          '<div class="field"><label>Your role</label>'+
+            '<div class="role-toggle">'+
+              '<button type="button" class="role-btn selected" data-role="CEO">CEO</button>'+
+              '<button type="button" class="role-btn" data-role="Web Manager">Web Manager</button>'+
+            '</div>'+
+          '</div>'+
+          '<button class="primary-btn" id="btn-signin">Enter the roster</button>'+
+          '<div class="login-error" id="login-err" style="display:none;">Enter your name to continue.</div>'+
+        '</div>'+
+      '</div>'
+    );
+  }
+  function bindLogin(){
+    var selectedRole = "CEO";
+    var roleBtns = document.querySelectorAll(".role-btn");
+    roleBtns.forEach(function(btn){
+      btn.addEventListener("click", function(){
+        roleBtns.forEach(function(b){ b.classList.remove("selected"); });
+        btn.classList.add("selected");
+        selectedRole = btn.getAttribute("data-role");
+      });
+    });
+    var nameInput = document.getElementById("in-name");
+    function submit(){
+      var name = nameInput.value;
+      if(!name || !name.trim()){
+        document.getElementById("login-err").style.display = "block";
+        return;
+      }
+      signIn(name.trim(), selectedRole);
+    }
+    document.getElementById("btn-signin").addEventListener("click", submit);
+    nameInput.addEventListener("keydown", function(e){ if(e.key==="Enter") submit(); });
+    nameInput.focus();
+  }
+
+  function navItemsHTML(){
+    var pendingLeave = state.leave.filter(function(l){ return l.status==="pending"; }).length;
+    return VIEWS.map(function(v){
+      var badge = (v==="leave" && pendingLeave>0) ? '<span class="nav-badge">'+pendingLeave+'</span>' : "";
+      return '<div class="nav-item '+(state.view===v?'active':'')+'" data-view="'+v+'">'+VIEW_LABELS[v]+badge+'</div>';
+    }).join("");
+  }
+
+  function renderShell(){
+    var body = state.loading ? '<p style="color:var(--ink-soft)">Loading roster…</p>' : renderView();
+    return (
+      '<div class="mobile-topbar">'+
+        '<div class="mobile-topbar-nav">'+ navItemsHTML() +'</div>'+
+        '<button class="mobile-signout" id="btn-signout-mobile" aria-label="Sign out">Sign out</button>'+
+      '</div>'+
+      '<div class="shell">'+
+        '<aside class="sidebar">'+
+          '<div class="sidebar-header">'+
+            '<div class="sidebar-mark">The Roster</div>'+
+            '<div class="sidebar-user">Signed in as <strong>'+esc(state.user.name)+'</strong><br>'+esc(state.user.role)+'</div>'+
+          '</div>'+
+          '<nav class="nav-list">'+ navItemsHTML() +'</nav>'+
+          '<div class="sidebar-footer"><button class="signout-btn" id="btn-signout">Sign out</button></div>'+
+        '</aside>'+
+        '<main class="main">'+ body +'</main>'+
+      '</div>'+
+      renderModal()
+    );
+  }
+
+  function renderView(){
+    switch(state.view){
+      case "dashboard": return renderDashboard();
+      case "members": return renderMembers();
+      case "projects": return renderProjects();
+      case "intake": return renderIntake();
+      case "receipts": return renderReceipts();
+      case "testimonials": return renderTestimonials();
+      case "services": return renderServices();
+      case "leave": return renderLeave();
+      case "performance": return renderPerformance();
+    }
+    return "";
+  }
+
+  function renderDashboard(){
+    var active = state.members.filter(function(m){ return m.status==="active"; }).length;
+    var pendingLeave = state.leave.filter(function(l){ return l.status==="pending"; }).length;
+    var activeProjects = state.projects.filter(function(p){ return p.status==="active"; }).length;
+    var recentNotes = state.performance.slice(0,5);
+
+    var html = '<div class="view-header"><div><h2>Dashboard</h2><div class="view-sub">Overview of the team, right now.</div></div></div>';
+
+    html += '<div class="stat-row">'+
+      '<div class="stat"><div class="stat-num">'+state.members.length+'</div><div class="stat-label">Members on roster</div></div>'+
+      '<div class="stat"><div class="stat-num">'+active+'</div><div class="stat-label">Active</div></div>'+
+      '<div class="stat"><div class="stat-num">'+activeProjects+'</div><div class="stat-label">Active projects</div></div>'+
+      '<div class="stat"><div class="stat-num">'+pendingLeave+'</div><div class="stat-label">Leave requests pending</div></div>'+
+    '</div>';
+
+    html += '<div class="section-title">Recent performance notes</div>';
+    if(recentNotes.length===0){
+      html += '<div class="empty-state"><p>No performance notes yet.</p><button class="btn" data-open-modal="performance">Add a note</button></div>';
+    } else {
+      html += '<div class="ledger">' + recentNotes.map(function(p){
+        return '<div class="ledger-row" style="grid-template-columns:1fr auto;">'+
+          '<div><span class="cell-name">'+esc(memberName(p.memberId))+'</span> &nbsp;<span class="cell-sub">'+esc(p.note.slice(0,90))+(p.note.length>90?'…':'')+'</span></div>'+
+          '<div class="cell-sub">'+fmtDate(p.date)+'</div>'+
+        '</div>';
+      }).join("") + '</div>';
+    }
+
+    html += '<div class="section-title">Pending leave requests</div>';
+    var pendingList = state.leave.filter(function(l){ return l.status==="pending"; });
+    if(pendingList.length===0){
+      html += '<div class="empty-state"><p>Nothing waiting on approval.</p></div>';
+    } else {
+      html += '<div class="ledger">' + pendingList.map(function(l){
+        return '<div class="ledger-row" style="grid-template-columns:1fr auto auto auto;">'+
+          '<div><span class="cell-name">'+esc(memberName(l.memberId))+'</span> &nbsp;<span class="cell-sub">'+esc(l.type)+', '+fmtDate(l.startDate)+' – '+fmtDate(l.endDate)+'</span></div>'+
+          '<div></div>'+
+          '<button class="btn-text approve" data-approve-leave="'+l.id+'">Approve</button>'+
+          '<button class="btn-text" data-deny-leave="'+l.id+'">Deny</button>'+
+        '</div>';
+      }).join("") + '</div>';
+    }
+
+    html += '<div class="section-title">Recent project handovers</div>';
+    var recentHandovers = state.handovers.slice(0,5);
+    if(recentHandovers.length===0){
+      html += '<div class="empty-state"><p>No handovers logged yet.</p></div>';
+    } else {
+      html += '<div class="ledger">' + recentHandovers.map(function(h){
+        var proj = state.projects.find(function(p){ return p.id===h.projectId; });
+        var projName = proj ? proj.name : "Unknown project";
+        var fromText = h.fromMemberId ? esc(memberName(h.fromMemberId)) + ' → ' : 'Assigned to ';
+        return '<div class="ledger-row" style="grid-template-columns:1fr auto;">'+
+          '<div><span class="cell-name">'+esc(projName)+'</span> &nbsp;<span class="cell-sub">'+fromText+esc(memberName(h.toMemberId))+'</span></div>'+
+          '<div class="cell-sub">'+fmtDate(h.handoverDate)+'</div>'+
+        '</div>';
+      }).join("") + '</div>';
+    }
+    return html;
+  }
+
+  function renderMembers(){
+    var html = '<div class="view-header"><div><h2>Members</h2><div class="view-sub">The full roster, editable by anyone signed in.</div></div>'+
+      '<div style="display:flex;gap:8px;"><button class="btn" data-open-modal="invite">Invite member</button><button class="btn btn-accent" data-open-modal="member">Add member</button></div></div>';
+
+    if(state.members.length===0){
+      html += '<div class="empty-state"><p>No one on the roster yet.</p><button class="btn" data-open-modal="member">Add the first member</button></div>';
+      return html;
+    }
+
+    html += '<div class="ledger">'+
+      '<div class="ledger-row head" style="grid-template-columns:1.5fr 1fr 1fr 1fr auto auto;"><div>Member</div><div>Location</div><div>Department</div><div>Contact</div><div>Status</div><div></div></div>'+
+      state.members.map(function(m){
+        return '<div class="ledger-row" style="grid-template-columns:1.5fr 1fr 1fr 1fr auto auto;">'+
+          '<div><div class="member-code">'+esc(m.memberCode||"—")+'</div><div class="cell-name">'+esc(m.name)+'</div><div class="cell-sub">'+esc(m.title||"—")+'</div></div>'+
+          '<div class="cell-sub">'+esc(m.location||"—")+'</div>'+
+          '<div class="cell-sub">'+esc(m.department||"—")+'</div>'+
+          '<div class="cell-sub">'+esc(m.email||"—")+'<br>'+esc(m.phone||"")+'</div>'+
+          '<div><span class="tag '+(m.status==="active"?"tag-active":"tag-inactive")+'">'+esc(m.status)+'</span></div>'+
+          '<div style="display:flex;gap:4px;"><button class="btn-text" data-edit-member="'+m.id+'">Edit</button><button class="btn-text" data-delete-member="'+m.id+'">Remove</button></div>'+
+        '</div>';
+      }).join("") +
+    '</div>';
+    return html;
+  }
+
+  function renderProjects(){
+    var html = '<div class="view-header"><div><h2>Projects</h2><div class="view-sub">What each member is currently carrying, and its handover history.</div></div>'+
+      '<button class="btn btn-accent" data-open-modal="project" '+(state.members.length===0?'disabled':'')+'>New project</button></div>';
+
+    if(state.members.length===0){
+      html += '<div class="empty-state"><p>Add members first, then create projects to assign to them.</p></div>';
+      return html;
+    }
+    if(state.projects.length===0){
+      html += '<div class="empty-state"><p>No projects yet.</p><button class="btn" data-open-modal="project">Create the first project</button></div>';
+      return html;
+    }
+
+    html += '<div class="ledger">'+
+      '<div class="ledger-row head" style="grid-template-columns:1.4fr 1fr 1fr 100px auto auto;"><div>Project</div><div>Client / Service</div><div>Currently with</div><div>Status</div><div></div><div></div></div>'+
+      state.projects.map(function(p){
+        var clientLine = [p.clientName, p.service].filter(Boolean).join(" · ") || "—";
+        return '<div class="ledger-row" style="grid-template-columns:1.4fr 1fr 1fr 100px auto auto;">'+
+          '<div><div class="cell-name">'+esc(p.name)+'</div>'+(p.description?'<div class="cell-sub">'+esc(p.description)+'</div>':'')+'</div>'+
+          '<div class="cell-sub">'+esc(clientLine)+(p.eventDate?'<br>'+fmtDate(p.eventDate):'')+'</div>'+
+          '<div class="cell-sub">'+(p.currentMemberId ? esc(memberName(p.currentMemberId)) : '—')+'</div>'+
+          '<div><span class="tag tag-active">'+esc(p.status)+'</span></div>'+
+          '<div><button class="btn-sm btn" data-open-handover="'+p.id+'">Hand over</button></div>'+
+          '<div><button class="btn-text" data-delete-project="'+p.id+'">Remove</button></div>'+
+        '</div>';
+      }).join("") +
+    '</div>';
+    return html;
+  }
+
+  function renderIntake(){
+    var tabs = [
+      {key:"bookings", label:"Bookings"},
+      {key:"kyc", label:"KYC"},
+      {key:"enrollment", label:"Enrollment"}
+    ];
+    var html = '<div class="view-header"><div><h2>Intake</h2><div class="view-sub">Live responses pulled from your Tally forms.</div></div></div>';
+    html += '<div class="tab-row">' + tabs.map(function(t){
+      return '<button class="tab-btn '+(state.intakeTab===t.key?'active':'')+'" data-intake-tab="'+t.key+'">'+t.label+'</button>';
+    }).join("") + '</div>';
+
+    var key = state.intakeTab;
+    var rows = state.intakeRows[key];
+
+    if(state.intakeLoading && rows===null){
+      html += '<p style="color:var(--ink-soft);margin-top:16px;">Fetching responses…</p>';
+      return html;
+    }
+    if(rows===null){
+      html += '<p style="color:var(--ink-soft);margin-top:16px;">Loading…</p>';
+      return html;
+    }
+    if(!state.sheetsConfigured[key]){
+      html += '<div class="empty-state" style="margin-top:16px;"><p>The '+key+' form isn\'t connected yet.</p>'+
+        '<p class="field-hint">Add your Tally API key in Vercel to connect it — see SETUP.md.</p>'+
+        '<button class="btn" data-refresh-intake="'+key+'">Check again</button></div>';
+      return html;
+    }
+    if(rows.length===0){
+      html += '<div class="empty-state" style="margin-top:16px;"><p>No responses yet.</p><button class="btn" data-refresh-intake="'+key+'">Refresh</button></div>';
+      return html;
+    }
+
+    html += '<div style="margin:16px 0;"><button class="btn btn-sm" data-refresh-intake="'+key+'">Refresh</button></div>';
+    html += '<div class="ledger">' + rows.map(function(row, i){
+      var fields = Object.keys(row).filter(function(k){ return k!=="Timestamp"; });
+      var summary = fields.slice(0,4).map(function(f){ return esc(row[f]); }).filter(Boolean).join(" · ");
+      var action = "";
+      if(key==="enrollment") action = '<button class="btn-sm btn" data-add-member-row="'+i+'">Add to roster</button>';
+      if(key==="kyc") action = '<button class="btn-sm btn" data-save-kyc-row="'+i+'">Save record</button>';
+      if(key==="bookings") action = '<button class="btn-sm btn" data-create-project-row="'+i+'">Create project</button>';
+      return '<div class="ledger-row" style="grid-template-columns:1fr auto auto;">'+
+        '<div><div class="cell-name">'+esc(row[fields[0]]||"—")+'</div><div class="cell-sub">'+summary+'</div></div>'+
+        '<div class="cell-sub">'+esc(row["Timestamp"]||"")+'</div>'+
+        '<div>'+action+'</div>'+
+      '</div>';
+    }).join("") + '</div>';
+    return html;
+  }
+
+  function renderReceipts(){
+    var html = '<div class="view-header"><div><h2>Receipts</h2><div class="view-sub">Every receipt issued, with a downloadable PDF.</div></div>'+
+      '<button class="btn btn-accent" data-open-modal="receipt">New receipt</button></div>';
+
+    if(state.receipts.length===0){
+      html += '<div class="empty-state"><p>No receipts yet.</p><button class="btn" data-open-modal="receipt">Create the first receipt</button></div>';
+      return html;
+    }
+
+    html += '<div class="ledger">'+
+      '<div class="ledger-row head" style="grid-template-columns:1fr 1fr 1fr auto auto;"><div>Receipt</div><div>Client</div><div>Amount</div><div></div><div></div></div>'+
+      state.receipts.map(function(r){
+        return '<div class="ledger-row" style="grid-template-columns:1fr 1fr 1fr auto auto;">'+
+          '<div><div class="member-code">'+esc(r.receiptNo||"—")+'</div><div class="cell-sub">'+fmtDate(r.receiptDate)+'</div></div>'+
+          '<div class="cell-sub">'+esc(r.clientName)+(r.service?'<br>'+esc(r.service):'')+'</div>'+
+          '<div class="cell-name">₹'+Number(r.amount).toLocaleString('en-IN')+'</div>'+
+          '<div><button class="btn-sm btn" data-reprint-receipt="'+r.id+'">Download PDF</button></div>'+
+          '<div><button class="btn-text" data-delete-receipt="'+r.id+'">Remove</button></div>'+
+        '</div>';
+      }).join("") +
+    '</div>';
+    return html;
+  }
+
+  function renderTestimonials(){
+    var html = '<div class="view-header"><div><h2>Testimonials</h2><div class="view-sub">What clients have said, in one place.</div></div>'+
+      '<button class="btn btn-accent" data-open-modal="testimonial">Add testimonial</button></div>';
+
+    if(state.testimonials.length===0){
+      html += '<div class="empty-state"><p>No testimonials yet.</p><button class="btn" data-open-modal="testimonial">Add the first one</button></div>';
+      return html;
+    }
+
+    var rated = state.testimonials.filter(function(t){ return t.rating; });
+    var avg = rated.length ? (rated.reduce(function(s,t){ return s+t.rating; },0)/rated.length).toFixed(1) : null;
+
+    html += '<div class="stat-row" style="grid-template-columns:repeat(2,1fr);">'+
+      '<div class="stat"><div class="stat-num">'+state.testimonials.length+'</div><div class="stat-label">Total testimonials</div></div>'+
+      '<div class="stat"><div class="stat-num">'+(avg||"—")+'</div><div class="stat-label">Average rating'+(rated.length?' ('+rated.length+' rated)':'')+'</div></div>'+
+    '</div>';
+
+    html += '<div class="ledger">' + state.testimonials.map(function(t){
+      return '<div class="ledger-row" style="grid-template-columns:1fr;">'+
+        '<div style="display:flex;justify-content:space-between;gap:12px;margin-bottom:6px;">'+
+          '<span class="cell-name">'+esc(t.clientName)+(t.rating?' · '+"★".repeat(t.rating):'')+'</span>'+
+          '<span class="cell-sub">'+esc(t.source)+(t.date?' · '+fmtDate(t.date):'')+'</span>'+
+        '</div>'+
+        '<div>'+esc(t.body)+'</div>'+
+        '<div style="margin-top:6px;text-align:right;"><button class="btn-text" data-delete-testimonial="'+t.id+'">Remove</button></div>'+
+      '</div>';
+    }).join("") + '</div>';
+    return html;
+  }
+
+  function renderServices(){
+    var html = '<div class="view-header"><div><h2>Services</h2><div class="view-sub">The service catalog shown to clients.</div></div>'+
+      '<button class="btn btn-accent" data-open-modal="service">Add service</button></div>';
+
+    if(state.services.length===0){
+      html += '<div class="empty-state"><p>No services listed yet.</p><button class="btn" data-open-modal="service">Add the first service</button></div>';
+      return html;
+    }
+
+    html += '<div class="ledger">' + state.services.map(function(s){
+      return '<div class="ledger-row" style="grid-template-columns:1fr auto auto;">'+
+        '<div><div class="cell-name">'+esc(s.name)+'</div>'+(s.description?'<div class="cell-sub">'+esc(s.description)+'</div>':'')+'</div>'+
+        '<div><span class="tag '+(s.active?"tag-active":"tag-inactive")+'">'+(s.active?"active":"hidden")+'</span></div>'+
+        '<div style="display:flex;gap:4px;"><button class="btn-text" data-edit-service="'+s.id+'">Edit</button><button class="btn-text" data-delete-service="'+s.id+'">Remove</button></div>'+
+      '</div>';
+    }).join("") + '</div>';
+    return html;
+  }
+
+  function renderLeave(){
+    var html = '<div class="view-header"><div><h2>Leave requests</h2><div class="view-sub">Time off, tracked from request to decision.</div></div>'+
+      '<button class="btn btn-accent" data-open-modal="leave" '+(state.members.length===0?'disabled':'')+'>New request</button></div>';
+
+    if(state.members.length===0){
+      html += '<div class="empty-state"><p>Add members first, then file leave requests for them.</p></div>';
+      return html;
+    }
+    if(state.leave.length===0){
+      html += '<div class="empty-state"><p>No leave requests on file.</p><button class="btn" data-open-modal="leave">File a request</button></div>';
+      return html;
+    }
+
+    html += '<div class="ledger">'+
+      '<div class="ledger-row head" style="grid-template-columns:1fr 1fr 1fr 100px auto;"><div>Member</div><div>Type</div><div>Dates</div><div>Status</div><div></div></div>'+
+      state.leave.map(function(l){
+        var actions = l.status==="pending"
+          ? '<button class="btn-text approve" data-approve-leave="'+l.id+'">Approve</button><button class="btn-text" data-deny-leave="'+l.id+'">Deny</button>'
+          : '<button class="btn-text" data-delete-leave="'+l.id+'">Remove</button>';
+        return '<div class="ledger-row" style="grid-template-columns:1fr 1fr 1fr 100px auto;">'+
+          '<div class="cell-name">'+esc(memberName(l.memberId))+'</div>'+
+          '<div class="cell-sub">'+esc(l.type)+(l.note?'<br>'+esc(l.note):'')+'</div>'+
+          '<div class="cell-sub">'+fmtDate(l.startDate)+' – '+fmtDate(l.endDate)+'</div>'+
+          '<div><span class="tag tag-'+l.status+'">'+esc(l.status)+'</span></div>'+
+          '<div style="display:flex;gap:4px;">'+actions+'</div>'+
+        '</div>';
+      }).join("") +
+    '</div>';
+    return html;
+  }
+
+  function renderPerformance(){
+    var html = '<div class="view-header"><div><h2>Performance notes</h2><div class="view-sub">A running record of feedback and check-ins.</div></div>'+
+      '<button class="btn btn-accent" data-open-modal="performance" '+(state.members.length===0?'disabled':'')+'>Add note</button></div>';
+
+    if(state.members.length===0){
+      html += '<div class="empty-state"><p>Add members first, then start recording notes.</p></div>';
+      return html;
+    }
+    if(state.performance.length===0){
+      html += '<div class="empty-state"><p>No notes recorded yet.</p><button class="btn" data-open-modal="performance">Add the first note</button></div>';
+      return html;
+    }
+
+    html += '<div class="ledger">' + state.performance.map(function(p){
+      return '<div class="ledger-row" style="grid-template-columns:1fr;">'+
+        '<div style="display:flex;justify-content:space-between;gap:12px;margin-bottom:6px;">'+
+          '<span class="cell-name">'+esc(memberName(p.memberId))+'</span>'+
+          '<span class="cell-sub">'+fmtDate(p.date)+(p.rating?' · '+esc(p.rating):'')+'</span>'+
+        '</div>'+
+        '<div>'+esc(p.note)+'</div>'+
+        '<div style="margin-top:6px;display:flex;justify-content:space-between;align-items:center;">'+
+          '<span class="cell-sub">Logged by '+esc(p.author)+'</span>'+
+          '<button class="btn-text" data-delete-performance="'+p.id+'">Remove</button>'+
+        '</div>'+
+      '</div>';
+    }).join("") + '</div>';
+    return html;
+  }
+
+  function memberOptions(selectedId, excludeId){
+    return state.members.filter(function(m){ return m.id !== excludeId; }).map(function(m){
+      return '<option value="'+m.id+'" '+(m.id===selectedId?'selected':'')+'>'+esc(m.name)+'</option>';
+    }).join("");
+  }
+  function serviceOptions(selected){
+    return '<option value="">—</option>' + state.services.map(function(s){
+      return '<option value="'+esc(s.name)+'" '+(s.name===selected?'selected':'')+'>'+esc(s.name)+'</option>';
+    }).join("");
+  }
+
+  function renderModal(){
+    if(!state.modal) return "";
+    var m = state.modal;
+    var inner = "";
+
+    if(m.type==="member"){
+      var d = m.data || {};
+      inner =
+        '<h3>'+(d.id?'Edit member':'Add member')+'</h3>'+
+        (d.id ? '<div class="field-hint" style="margin-bottom:14px;">Member ID: '+esc(d.memberCode||"—")+'</div>' : '<p class="field-hint" style="margin-bottom:14px;">A member ID is generated automatically when you save.</p>')+
+        '<div class="field"><label>Full name</label><input id="f-name" value="'+esc(d.name||"")+'" placeholder="Jordan Blake"></div>'+
+        '<div class="panel-row">'+
+          '<div class="field"><label>Job title</label><input id="f-title" value="'+esc(d.title||"")+'" placeholder="Photographer"></div>'+
+          '<div class="field"><label>Department</label><input id="f-department" value="'+esc(d.department||"")+'" placeholder="Photography"></div>'+
+        '</div>'+
+        '<div class="panel-row">'+
+          '<div class="field"><label>Email</label><input id="f-email" value="'+esc(d.email||"")+'" placeholder="jordan@company.com"></div>'+
+          '<div class="field"><label>Phone</label><input id="f-phone" value="'+esc(d.phone||"")+'" placeholder="(555) 000-0000"></div>'+
+        '</div>'+
+        '<div class="panel-row">'+
+          '<div class="field"><label>Location</label><input id="f-location" value="'+esc(d.location||"")+'" placeholder="Bangalore"></div>'+
+          '<div class="field"><label>Start date</label><input id="f-start" type="date" value="'+esc(d.startDate||"")+'"></div>'+
+        '</div>'+
+        '<div class="field"><label>Status</label><select id="f-status"><option value="active" '+(d.status!=="inactive"?"selected":"")+'>Active</option><option value="inactive" '+(d.status==="inactive"?"selected":"")+'>Inactive</option></select></div>'+
+        '<div class="panel-actions"><button class="btn" data-close-modal>Cancel</button><button class="btn btn-accent" id="save-member">Save</button></div>';
+    }
+
+    if(m.type==="invite"){
+      inner =
+        '<h3>Invite a member</h3>'+
+        '<div class="field"><label>Name</label><input id="f-name" placeholder="Jordan Blake"></div>'+
+        '<div class="field"><label>Email</label><input id="f-email" placeholder="jordan@company.com"></div>'+
+        '<div class="field-hint" style="margin-bottom:16px;">'+(state.memberEnrollmentFormUrl ? "They'll get an email with a link to the enrollment form. The portal passcode is never included." : "They'll get a welcome email. Connect the enrollment form (see SETUP.md) to include a signup link.")+'</div>'+
+        '<div class="panel-actions"><button class="btn" data-close-modal>Cancel</button><button class="btn btn-accent" id="save-invite">Send invite</button></div>';
+    }
+
+    if(m.type==="leave"){
+      inner =
+        '<h3>New leave request</h3>'+
+        '<div class="field"><label>Member</label><select id="f-member">'+memberOptions()+'</select></div>'+
+        '<div class="field"><label>Type</label><select id="f-type"><option>Vacation</option><option>Sick</option><option>Personal</option><option>Bereavement</option><option>Unpaid</option></select></div>'+
+        '<div class="panel-row">'+
+          '<div class="field"><label>Start date</label><input id="f-start" type="date" value="'+todayStr()+'"></div>'+
+          '<div class="field"><label>End date</label><input id="f-end" type="date" value="'+todayStr()+'"></div>'+
+        '</div>'+
+        '<div class="field"><label>Note (optional)</label><input id="f-note" placeholder="Context for the request"></div>'+
+        '<div class="panel-actions"><button class="btn" data-close-modal>Cancel</button><button class="btn btn-accent" id="save-leave">Submit</button></div>';
+    }
+
+    if(m.type==="performance"){
+      inner =
+        '<h3>Add performance note</h3>'+
+        '<div class="field"><label>Member</label><select id="f-member">'+memberOptions()+'</select></div>'+
+        '<div class="panel-row">'+
+          '<div class="field"><label>Date</label><input id="f-date" type="date" value="'+todayStr()+'"></div>'+
+          '<div class="field"><label>Rating (optional)</label><select id="f-rating"><option value="">—</option><option>Exceeds expectations</option><option>Meets expectations</option><option>Needs improvement</option></select></div>'+
+        '</div>'+
+        '<div class="field"><label>Note</label><textarea id="f-note" rows="4" placeholder="What happened, and what\'s the follow-up?"></textarea></div>'+
+        '<div class="panel-actions"><button class="btn" data-close-modal>Cancel</button><button class="btn btn-accent" id="save-performance">Save</button></div>';
+    }
+
+    if(m.type==="project"){
+      var pd = m.data || {};
+      inner =
+        '<h3>New project</h3>'+
+        (pd.prefill ? '<div class="field-hint" style="margin-bottom:14px;">Pre-filled from a booking response — check the details before saving.</div>' : '')+
+        '<div class="field"><label>Project name</label><input id="f-name" value="'+esc(pd.name||"")+'" placeholder="Diwali decoration — Whitefield"></div>'+
+        '<div class="panel-row">'+
+          '<div class="field"><label>Client name</label><input id="f-client" value="'+esc(pd.clientName||"")+'" placeholder="Ramesh Iyer"></div>'+
+          '<div class="field"><label>Service</label><select id="f-service">'+serviceOptions(pd.service)+'</select></div>'+
+        '</div>'+
+        '<div class="panel-row">'+
+          '<div class="field"><label>Location</label><input id="f-location" value="'+esc(pd.location||"")+'" placeholder="Whitefield, Bangalore"></div>'+
+          '<div class="field"><label>Event date</label><input id="f-event-date" type="date" value="'+esc(pd.eventDate||"")+'"></div>'+
+        '</div>'+
+        '<div class="field"><label>Budget (optional)</label><input id="f-budget" type="number" value="'+esc(pd.budget||"")+'" placeholder="25000"></div>'+
+        '<div class="field"><label>Description (optional)</label><textarea id="f-description" rows="3" placeholder="What the project covers">'+esc(pd.description||"")+'</textarea></div>'+
+        '<div class="field"><label>Assign to</label><select id="f-member">'+memberOptions()+'</select></div>'+
+        '<div class="field-hint" style="margin-bottom:16px;">The assigned member gets an automatic email when you save.</div>'+
+        '<div class="panel-actions"><button class="btn" data-close-modal>Cancel</button><button class="btn btn-accent" id="save-project">Create</button></div>';
+    }
+
+    if(m.type==="receipt"){
+      inner =
+        '<h3>New receipt</h3>'+
+        '<div class="field"><label>Client name</label><input id="f-client" placeholder="Ramesh Iyer"></div>'+
+        '<div class="panel-row">'+
+          '<div class="field"><label>Contact (optional)</label><input id="f-contact" placeholder="Phone or email"></div>'+
+          '<div class="field"><label>Service</label><select id="f-service">'+serviceOptions()+'</select></div>'+
+        '</div>'+
+        '<div class="panel-row">'+
+          '<div class="field"><label>Amount (₹)</label><input id="f-amount" type="number" placeholder="15000"></div>'+
+          '<div class="field"><label>Payment mode</label><select id="f-payment-mode"><option>Cash</option><option>UPI</option><option>Bank Transfer</option><option>Cheque</option></select></div>'+
+        '</div>'+
+        '<div class="panel-row">'+
+          '<div class="field"><label>Related project (optional)</label><select id="f-project"><option value="">—</option>'+state.projects.map(function(p){ return '<option value="'+p.id+'">'+esc(p.name)+'</option>'; }).join("")+'</select></div>'+
+          '<div class="field"><label>Date</label><input id="f-receipt-date" type="date" value="'+todayStr()+'"></div>'+
+        '</div>'+
+        '<div class="field"><label>Note (optional)</label><input id="f-note" placeholder="What this payment was for"></div>'+
+        '<div class="field-hint" style="margin-bottom:16px;">A PDF downloads automatically once saved.</div>'+
+        '<div class="panel-actions"><button class="btn" data-close-modal>Cancel</button><button class="btn btn-accent" id="save-receipt">Save &amp; generate PDF</button></div>';
+    }
+
+    if(m.type==="testimonial"){
+      inner =
+        '<h3>Add testimonial</h3>'+
+        '<div class="field"><label>Client name</label><input id="f-client" placeholder="Ramesh Iyer"></div>'+
+        '<div class="panel-row">'+
+          '<div class="field"><label>Rating (optional)</label><select id="f-rating"><option value="">—</option><option value="5">5</option><option value="4">4</option><option value="3">3</option><option value="2">2</option><option value="1">1</option></select></div>'+
+          '<div class="field"><label>Date (optional)</label><input id="f-date" type="date"></div>'+
+        '</div>'+
+        '<div class="field"><label>Testimonial</label><textarea id="f-body" rows="4" placeholder="What they said"></textarea></div>'+
+        '<div class="panel-actions"><button class="btn" data-close-modal>Cancel</button><button class="btn btn-accent" id="save-testimonial">Save</button></div>';
+    }
+
+    if(m.type==="service"){
+      var sd = m.data || {};
+      inner =
+        '<h3>'+(sd.id?'Edit service':'Add service')+'</h3>'+
+        '<div class="field"><label>Name</label><input id="f-name" value="'+esc(sd.name||"")+'" placeholder="Photography"></div>'+
+        '<div class="field"><label>Description (optional)</label><textarea id="f-description" rows="3" placeholder="Shown to clients">'+esc(sd.description||"")+'</textarea></div>'+
+        '<div class="panel-row">'+
+          '<div class="field"><label>Sort order</label><input id="f-sort" type="number" value="'+esc(sd.sortOrder!=null?sd.sortOrder:0)+'"></div>'+
+          '<div class="field"><label>Visible</label><select id="f-active"><option value="true" '+(sd.active!==false?"selected":"")+'>Active</option><option value="false" '+(sd.active===false?"selected":"")+'>Hidden</option></select></div>'+
+        '</div>'+
+        '<div class="panel-actions"><button class="btn" data-close-modal>Cancel</button><button class="btn btn-accent" id="save-service">Save</button></div>';
+    }
+
+    if(m.type==="handover"){
+      var proj = m.data;
+      inner =
+        '<h3>Hand over "'+esc(proj.name)+'"</h3>'+
+        '<div class="field-hint" style="margin-bottom:14px;">Currently with: '+(proj.currentMemberId?esc(memberName(proj.currentMemberId)):'Unassigned')+'</div>'+
+        '<div class="field"><label>Hand over to</label><select id="f-member">'+memberOptions(null, proj.currentMemberId)+'</select></div>'+
+        '<div class="field"><label>Note (optional)</label><input id="f-note" placeholder="Context for the handover"></div>'+
+        '<div class="checkbox-field"><input type="checkbox" id="f-notify-previous" checked><label for="f-notify-previous">Notify the previous member their project was transferred (their identity is kept private from the new member, and vice versa)</label></div>'+
+        '<div class="panel-actions"><button class="btn" data-close-modal>Cancel</button><button class="btn btn-accent" id="save-handover">Hand over</button></div>';
+    }
+
+    return '<div class="overlay" id="overlay"><div class="panel">'+inner+'</div></div>';
+  }
+
+  // ---------------- Event binding ----------------
+  function bindShell(){
+    document.getElementById("btn-signout").addEventListener("click", signOut);
+    var mobileSignout = document.getElementById("btn-signout-mobile");
+    if(mobileSignout) mobileSignout.addEventListener("click", signOut);
+
+    document.querySelectorAll("[data-view]").forEach(function(el){
+      el.addEventListener("click", function(){ setView(el.getAttribute("data-view")); });
+    });
+    document.querySelectorAll("[data-open-modal]").forEach(function(el){
+      el.addEventListener("click", function(){
+        if(el.disabled) return;
+        openModal(el.getAttribute("data-open-modal"), null);
+      });
+    });
+    document.querySelectorAll("[data-edit-member]").forEach(function(el){
+      el.addEventListener("click", function(){
+        var id = el.getAttribute("data-edit-member");
+        var mem = state.members.find(function(x){ return x.id===id; });
+        openModal("member", mem);
+      });
+    });
+    document.querySelectorAll("[data-delete-member]").forEach(function(el){
+      el.addEventListener("click", function(){ deleteMember(el.getAttribute("data-delete-member")); });
+    });
+    document.querySelectorAll("[data-open-handover]").forEach(function(el){
+      el.addEventListener("click", function(){
+        var id = el.getAttribute("data-open-handover");
+        var proj = state.projects.find(function(x){ return x.id===id; });
+        openModal("handover", proj);
+      });
+    });
+    document.querySelectorAll("[data-delete-project]").forEach(function(el){
+      el.addEventListener("click", function(){ deleteProject(el.getAttribute("data-delete-project")); });
+    });
+    document.querySelectorAll("[data-approve-leave]").forEach(function(el){
+      el.addEventListener("click", function(){ setLeaveStatus(el.getAttribute("data-approve-leave"), "approved"); });
+    });
+    document.querySelectorAll("[data-deny-leave]").forEach(function(el){
+      el.addEventListener("click", function(){ setLeaveStatus(el.getAttribute("data-deny-leave"), "denied"); });
+    });
+    document.querySelectorAll("[data-delete-leave]").forEach(function(el){
+      el.addEventListener("click", function(){ deleteLeave(el.getAttribute("data-delete-leave")); });
+    });
+    document.querySelectorAll("[data-delete-performance]").forEach(function(el){
+      el.addEventListener("click", function(){ deletePerformance(el.getAttribute("data-delete-performance")); });
+    });
+
+    document.querySelectorAll("[data-intake-tab]").forEach(function(el){
+      el.addEventListener("click", function(){ setIntakeTab(el.getAttribute("data-intake-tab")); });
+    });
+    document.querySelectorAll("[data-refresh-intake]").forEach(function(el){
+      el.addEventListener("click", function(){ loadIntake(el.getAttribute("data-refresh-intake")); });
+    });
+    document.querySelectorAll("[data-add-member-row]").forEach(function(el){
+      el.addEventListener("click", function(){
+        var row = state.intakeRows.enrollment[parseInt(el.getAttribute("data-add-member-row"),10)];
+        addMemberFromRow(row);
+      });
+    });
+    document.querySelectorAll("[data-save-kyc-row]").forEach(function(el){
+      el.addEventListener("click", function(){
+        var row = state.intakeRows.kyc[parseInt(el.getAttribute("data-save-kyc-row"),10)];
+        saveKycFromRow(row);
+      });
+    });
+    document.querySelectorAll("[data-create-project-row]").forEach(function(el){
+      el.addEventListener("click", function(){
+        var row = state.intakeRows.bookings[parseInt(el.getAttribute("data-create-project-row"),10)];
+        createProjectFromBooking(row);
+      });
+    });
+
+    document.querySelectorAll("[data-reprint-receipt]").forEach(function(el){
+      el.addEventListener("click", function(){
+        var rec = state.receipts.find(function(r){ return r.id===el.getAttribute("data-reprint-receipt"); });
+        if(rec) generateReceiptPdf(rec);
+      });
+    });
+    document.querySelectorAll("[data-delete-receipt]").forEach(function(el){
+      el.addEventListener("click", function(){ deleteReceipt(el.getAttribute("data-delete-receipt")); });
+    });
+    document.querySelectorAll("[data-delete-testimonial]").forEach(function(el){
+      el.addEventListener("click", function(){ deleteTestimonial(el.getAttribute("data-delete-testimonial")); });
+    });
+    document.querySelectorAll("[data-edit-service]").forEach(function(el){
+      el.addEventListener("click", function(){
+        var svc = state.services.find(function(s){ return s.id===el.getAttribute("data-edit-service"); });
+        openModal("service", svc);
+      });
+    });
+    document.querySelectorAll("[data-delete-service]").forEach(function(el){
+      el.addEventListener("click", function(){ deleteService(el.getAttribute("data-delete-service")); });
+    });
+
+    var overlay = document.getElementById("overlay");
+    if(overlay){
+      overlay.addEventListener("click", function(e){ if(e.target===overlay) closeModal(); });
+      document.querySelectorAll("[data-close-modal]").forEach(function(el){ el.addEventListener("click", closeModal); });
+
+      var saveMem = document.getElementById("save-member");
+      if(saveMem){
+        saveMem.addEventListener("click", function(){
+          var name = document.getElementById("f-name").value;
+          if(!name.trim()){ document.getElementById("f-name").focus(); return; }
+          saveMember({
+            id: state.modal.data ? state.modal.data.id : null,
+            name: name,
+            title: document.getElementById("f-title").value,
+            department: document.getElementById("f-department").value,
+            email: document.getElementById("f-email").value,
+            phone: document.getElementById("f-phone").value,
+            location: document.getElementById("f-location").value,
+            startDate: document.getElementById("f-start").value,
+            status: document.getElementById("f-status").value
+          });
+        });
+      }
+      var saveLv = document.getElementById("save-leave");
+      if(saveLv){
+        saveLv.addEventListener("click", function(){
+          saveLeave({
+            memberId: document.getElementById("f-member").value,
+            type: document.getElementById("f-type").value,
+            startDate: document.getElementById("f-start").value,
+            endDate: document.getElementById("f-end").value,
+            note: document.getElementById("f-note").value
+          });
+        });
+      }
+      var savePerf = document.getElementById("save-performance");
+      if(savePerf){
+        savePerf.addEventListener("click", function(){
+          var note = document.getElementById("f-note").value;
+          if(!note.trim()){ document.getElementById("f-note").focus(); return; }
+          savePerformance({
+            memberId: document.getElementById("f-member").value,
+            date: document.getElementById("f-date").value,
+            rating: document.getElementById("f-rating").value,
+            note: note
+          });
+        });
+      }
+      var saveProj = document.getElementById("save-project");
+      if(saveProj){
+        saveProj.addEventListener("click", function(){
+          var name = document.getElementById("f-name").value;
+          if(!name.trim()){ document.getElementById("f-name").focus(); return; }
+          saveProject({
+            name: name,
+            description: document.getElementById("f-description").value,
+            memberId: document.getElementById("f-member").value,
+            clientName: document.getElementById("f-client").value,
+            service: document.getElementById("f-service").value,
+            location: document.getElementById("f-location").value,
+            eventDate: document.getElementById("f-event-date").value,
+            budget: document.getElementById("f-budget").value
+          });
+        });
+      }
+      var saveInv = document.getElementById("save-invite");
+      if(saveInv){
+        saveInv.addEventListener("click", function(){
+          var email = document.getElementById("f-email").value;
+          if(!email.trim()){ document.getElementById("f-email").focus(); return; }
+          inviteMember({ name: document.getElementById("f-name").value, email: email });
+        });
+      }
+      var saveRcpt = document.getElementById("save-receipt");
+      if(saveRcpt){
+        saveRcpt.addEventListener("click", function(){
+          var client = document.getElementById("f-client").value;
+          var amount = document.getElementById("f-amount").value;
+          if(!client.trim()){ document.getElementById("f-client").focus(); return; }
+          if(!amount){ document.getElementById("f-amount").focus(); return; }
+          saveReceipt({
+            clientName: client,
+            contact: document.getElementById("f-contact").value,
+            service: document.getElementById("f-service").value,
+            amount: amount,
+            paymentMode: document.getElementById("f-payment-mode").value,
+            projectId: document.getElementById("f-project").value,
+            receiptDate: document.getElementById("f-receipt-date").value,
+            note: document.getElementById("f-note").value
+          });
+        });
+      }
+      var saveTest = document.getElementById("save-testimonial");
+      if(saveTest){
+        saveTest.addEventListener("click", function(){
+          var body = document.getElementById("f-body").value;
+          var client = document.getElementById("f-client").value;
+          if(!client.trim()){ document.getElementById("f-client").focus(); return; }
+          if(!body.trim()){ document.getElementById("f-body").focus(); return; }
+          saveTestimonial({
+            clientName: client, body: body,
+            rating: document.getElementById("f-rating").value,
+            date: document.getElementById("f-date").value,
+            source: "Manual"
+          });
+        });
+      }
+      var saveSvc = document.getElementById("save-service");
+      if(saveSvc){
+        saveSvc.addEventListener("click", function(){
+          var name = document.getElementById("f-name").value;
+          if(!name.trim()){ document.getElementById("f-name").focus(); return; }
+          saveService({
+            id: state.modal.data ? state.modal.data.id : null,
+            name: name,
+            description: document.getElementById("f-description").value,
+            active: document.getElementById("f-active").value === "true",
+            sortOrder: document.getElementById("f-sort").value
+          });
+        });
+      }
+      var saveHo = document.getElementById("save-handover");
+      if(saveHo){
+        saveHo.addEventListener("click", function(){
+          handoverProject({
+            id: state.modal.data.id,
+            toMemberId: document.getElementById("f-member").value,
+            note: document.getElementById("f-note").value,
+            notifyPrevious: document.getElementById("f-notify-previous").checked
+          });
+        });
+      }
+    }
+  }
+
+  loadSession();
+  render();
+  if(state.pin){ loadAll(); }
+})();
+</script>
+</body>
+</html>

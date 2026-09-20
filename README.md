@@ -38,7 +38,7 @@ so it's easy to tell if a step was missed.
 
 The passcode is never stored in code — only in the `ROSTER_PIN` environment
 variable. To reset it, edit that variable's value in Vercel project
-**Settings → Environment Variables** (e.g. to `0210`), then redeploy so the
+**Settings → Environment Variables** (e.g. to `0000`), then redeploy so the
 change takes effect. No file edits needed.
 
 ## Database schema

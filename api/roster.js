@@ -1,11 +1,23 @@
-
 const { neon } = require('@neondatabase/serverless');
+const crypto = require('crypto');
 
 // All of these must be set as Environment Variables in the Vercel project
 // settings (Settings -> Environment Variables). Nothing sensitive is
 // hardcoded in this file, so it's safe to commit / share / push to a repo.
 const DATABASE_URL = process.env.DATABASE_URL;
-const PORTAL_PIN = process.env.ROSTER_PIN;
+// Two passcodes, one per role. ROSTER_PIN still works as a single shared
+// passcode if neither of the role-specific ones is set.
+const PORTAL_PINS = [process.env.ROSTER_PIN_CEO, process.env.ROSTER_PIN_WEB_MANAGER]
+  .filter(Boolean).map(String);
+if(!PORTAL_PINS.length && process.env.ROSTER_PIN){ PORTAL_PINS.push(String(process.env.ROSTER_PIN)); }
+
+function pinMatches(given){
+  var g = Buffer.from(String(given || ""));
+  return PORTAL_PINS.some(function(p){
+    var b = Buffer.from(p);
+    return b.length === g.length && crypto.timingSafeEqual(b, g);
+  });
+}
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const FROM_EMAIL = process.env.FROM_EMAIL || "onboarding@resend.dev"; // Resend's shared test sender; verify your own domain for production
 
@@ -213,13 +225,13 @@ async function fetchTallyForm(key){
 module.exports = async (req, res) => {
   res.setHeader('Content-Type', 'application/json');
 
-  if(!DATABASE_URL || !PORTAL_PIN){
-    res.status(500).json({ ok:false, error:"Server is missing DATABASE_URL or ROSTER_PIN environment variables. Set them in Vercel project settings." });
+  if(!DATABASE_URL || !PORTAL_PINS.length){
+    res.status(500).json({ ok:false, error:"Server is missing DATABASE_URL or the passcodes (ROSTER_PIN_CEO / ROSTER_PIN_WEB_MANAGER). Set them in Vercel project settings." });
     return;
   }
 
   var pinHeader = req.headers['x-roster-pin'];
-  if(pinHeader !== PORTAL_PIN){
+  if(!pinMatches(pinHeader)){
     res.status(401).json({ ok:false, error:"Incorrect passcode." });
     return;
   }

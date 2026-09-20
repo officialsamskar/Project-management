@@ -26,6 +26,9 @@ const FROM_EMAIL = process.env.FROM_EMAIL || "onboarding@resend.dev"; // Resend'
 // (the ID is the last part of the form's share link, tally.so/r/<ID>); set the
 // env vars only if you want to point Intake at different forms.
 const TALLY_API_KEY = process.env.TALLY_API_KEY || "";
+// Secret shared with Tally so that only real form submissions are accepted by
+// /api/tally-webhook. Also used here to tell the app the intake is switched on.
+const TALLY_SIGNING_SECRET = process.env.TALLY_SIGNING_SECRET || "";
 const TALLY_FORM_IDS = {
   bookings: process.env.TALLY_BOOKINGS_FORM_ID || "xXGlx5",
   kyc: process.env.TALLY_KYC_FORM_ID || "RGOVK9",
@@ -118,52 +121,9 @@ async function sendEmail(to, subject, html){
   }
 }
 
-// ---------------- Tally form responses ----------------
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-// Turn one Tally answer into plain text. Text, email, phone and date answers
-// arrive as strings; choice answers (dropdowns, checkboxes) can arrive as a
-// list of option ids, which we map back to the option's label.
-function answerToText(resp, question){
-  var answer = resp ? resp.answer : null;
-  if(answer === null || answer === undefined) return "";
-  var text = "";
-
-  if(Array.isArray(answer)){
-    var labels = {};
-    ((question && question.fields) || []).forEach(function(f){
-      var label = f.text || f.title || f.label;
-      if(f.uuid && label) labels[f.uuid] = label;
-    });
-    var unresolved = false;
-    var parts = answer.map(function(a){
-      if(a && typeof a === "object") return a.name || a.url || a.text || "";
-      var s = String(a);
-      if(labels[s]) return labels[s];
-      if(UUID_RE.test(s)) unresolved = true;
-      return s;
-    }).filter(Boolean);
-    if(unresolved && typeof resp.formattedAnswer === "string" && resp.formattedAnswer.trim()){
-      text = resp.formattedAnswer.trim();
-    } else {
-      text = parts.join(", ");
-    }
-  } else if(typeof answer === "object"){
-    text = String(answer.name || answer.url || answer.text || answer.value || "");
-  } else {
-    text = String(answer);
-  }
-  text = text.trim();
-
-  // The app puts this straight into a date input, which needs YYYY-MM-DD.
-  if(text && question && question.type === "INPUT_DATE"){
-    if(/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);
-    var d = new Date(text);
-    if(!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
-  }
-  return text;
-}
-
+// ---------------- Intake (form responses stored in SQL) ----------------
+// Tally sends every submission to /api/tally-webhook, which saves it in the
+// intake_submissions table. The Intake tab reads it back from there.
 function formatTimestamp(iso){
   if(!iso) return "";
   var d = new Date(iso);
@@ -174,53 +134,48 @@ function formatTimestamp(iso){
   });
 }
 
-// Returns rows shaped like the old Google Sheet rows: one object per response,
-// keyed by question title (plus "Timestamp"), newest first. The front end
-// reads fields like row["Client Name"], so keep the form's question titles
-// exactly as listed in SETUP.md.
-async function fetchTallyForm(key){
-  var formId = TALLY_FORM_IDS[key];
-  if(!TALLY_API_KEY || !formId) return { configured:false, rows:[] };
-
-  var questions = null;
-  var submissions = [];
-  for(var page = 1; page <= 20; page++){
-    var res = await fetch(
-      "https://api.tally.so/forms/" + encodeURIComponent(formId) + "/submissions?page=" + page + "&limit=100",
-      { headers: { "Authorization": "Bearer " + TALLY_API_KEY } }
-    );
-    if(res.status === 401 || res.status === 403){
-      throw new Error("Tally rejected the API key. Check TALLY_API_KEY in Vercel.");
-    }
-    if(res.status === 404){
-      throw new Error("Tally couldn't find the " + key + " form. Check its form ID.");
-    }
-    if(!res.ok){
-      throw new Error("Couldn't fetch the " + key + " responses from Tally (status " + res.status + ").");
-    }
-    var data = await res.json();
-    if(!questions) questions = data.questions || [];
-    submissions = submissions.concat(data.submissions || []);
-    if(!data.hasMore) break;
-  }
-
-  var inputs = (questions || []).filter(function(q){
-    return q && q.type !== "FORM_TITLE" && !q.isDeleted && String(q.title || "").trim();
-  });
-
-  submissions = submissions.filter(function(s){ return s.isCompleted !== false; });
-  submissions.sort(function(a, b){ return new Date(b.submittedAt) - new Date(a.submittedAt); });
-
-  var rows = submissions.map(function(s){
-    var byQuestion = {};
-    (s.responses || []).forEach(function(r){ byQuestion[r.questionId] = r; });
-    var row = { "Timestamp": formatTimestamp(s.submittedAt) };
-    inputs.forEach(function(q){
-      row[String(q.title).trim()] = answerToText(byQuestion[q.id], q);
-    });
-    return row;
+// Returns rows shaped like the old sheet rows: one object per response, keyed
+// by question title (plus "Timestamp"), newest first. The front end reads
+// fields like row["Client Name"], so keep the form's question titles as listed
+// in SETUP.md.
+async function readIntake(key){
+  if(!TALLY_SIGNING_SECRET) return { configured:false, rows:[] };
+  var found = await sql`SELECT id, submitted_at, data FROM intake_submissions WHERE form_key = ${key} ORDER BY submitted_at DESC LIMIT 500`;
+  var rows = found.map(function(r){
+    var data = (typeof r.data === "string") ? JSON.parse(r.data) : (r.data || {});
+    return Object.assign({ "Timestamp": formatTimestamp(r.submitted_at) }, data);
   });
   return { configured:true, rows: rows };
+}
+
+// One-tap setup: registers a Tally webhook for each form so submissions flow
+// into /api/tally-webhook. Safe to run again (existing webhooks are updated).
+async function connectTallyForms(hookUrl){
+  var headers = { "Authorization": "Bearer " + TALLY_API_KEY, "Content-Type": "application/json" };
+  var listRes = await fetch("https://api.tally.so/webhooks?limit=100", { headers: headers });
+  if(listRes.status === 401 || listRes.status === 403){
+    throw new Error("Tally rejected the API key. Check TALLY_API_KEY in Vercel.");
+  }
+  if(!listRes.ok) throw new Error("Couldn't read your Tally webhooks (status " + listRes.status + ").");
+  var listed = await listRes.json();
+  var existing = listed.webhooks || [];
+
+  var results = [];
+  var keys = Object.keys(TALLY_FORM_IDS);
+  for(var i = 0; i < keys.length; i++){
+    var key = keys[i], formId = TALLY_FORM_IDS[key];
+    var match = existing.find(function(w){ return w.formId === formId && w.url === hookUrl; });
+    var body = { formId: formId, url: hookUrl, eventTypes: ["FORM_RESPONSE"], signingSecret: TALLY_SIGNING_SECRET };
+    var res;
+    if(match){
+      body.isEnabled = true;
+      res = await fetch("https://api.tally.so/webhooks/" + encodeURIComponent(match.id), { method: "PATCH", headers: headers, body: JSON.stringify(body) });
+    } else {
+      res = await fetch("https://api.tally.so/webhooks", { method: "POST", headers: headers, body: JSON.stringify(body) });
+    }
+    results.push({ form: key, status: res.ok ? (match ? "updated" : "connected") : "failed", code: res.status });
+  }
+  return results;
 }
 
 // ---------------- Existing-customer check ----------------
@@ -321,10 +276,10 @@ module.exports = async (req, res) => {
         services: services.map(mapService),
         // (name kept from the Google Sheets version so the front end needs no change)
         sheetsConfigured: {
-          bookings: !!(TALLY_API_KEY && TALLY_FORM_IDS.bookings),
-          kyc: !!(TALLY_API_KEY && TALLY_FORM_IDS.kyc),
-          enrollment: !!(TALLY_API_KEY && TALLY_FORM_IDS.enrollment),
-          existing: !!(TALLY_API_KEY && TALLY_FORM_IDS.existing)
+          bookings: !!TALLY_SIGNING_SECRET,
+          kyc: !!TALLY_SIGNING_SECRET,
+          enrollment: !!TALLY_SIGNING_SECRET,
+          existing: !!TALLY_SIGNING_SECRET
         },
         memberEnrollmentFormUrl: MEMBER_ENROLLMENT_FORM_URL
       });
@@ -337,10 +292,20 @@ module.exports = async (req, res) => {
       var action = body.action;
       var p = body.payload || {};
 
+      // ---------- connect Tally forms (register webhooks) ----------
+      if(resource === 'tally' && action === 'connect'){
+        if(!TALLY_API_KEY){ res.status(400).json({ ok:false, error:"TALLY_API_KEY isn't set in Vercel." }); return; }
+        if(!TALLY_SIGNING_SECRET){ res.status(400).json({ ok:false, error:"TALLY_SIGNING_SECRET isn't set in Vercel." }); return; }
+        var host = req.headers['x-forwarded-host'] || req.headers.host;
+        var connectResults = await connectTallyForms("https://" + host + "/api/tally-webhook");
+        res.status(200).json({ ok:true, results: connectResults });
+        return;
+      }
+
       // ---------- Tally intake ----------
       if(resource === 'sheet' && action === 'fetch'){
         if(!TALLY_FORM_IDS.hasOwnProperty(p.key)){ res.status(400).json({ ok:false, error:"Unknown intake form." }); return; }
-        var sheetResult = await fetchTallyForm(p.key);
+        var sheetResult = await readIntake(p.key);
         if(p.key === 'existing' && sheetResult.configured){ sheetResult.rows = await annotateExisting(sheetResult.rows); }
         res.status(200).json({ ok:true, configured: sheetResult.configured, rows: sheetResult.rows });
         return;

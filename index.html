@@ -385,10 +385,10 @@ nav.nav-list{display:flex;flex-direction:column;}
     testimonials:[],
     kycRecords:[],
     services:[],
-    sheetsConfigured:{bookings:false, kyc:false, enrollment:false, existing:false},
+    sheetsConfigured:{bookings:false, kyc:false, enrollment:false, existing:false, leave:false},
     memberEnrollmentFormUrl:"",
     intakeTab:"bookings",
-    intakeRows:{bookings:null, kyc:null, enrollment:null, existing:null},
+    intakeRows:{bookings:null, kyc:null, enrollment:null, existing:null, leave:null},
     intakeLoading:false,
     loading:true,
     modal:null
@@ -423,16 +423,11 @@ nav.nav-list{display:flex;flex-direction:column;}
       if(!raw) return;
       var s = JSON.parse(raw);
       state.pin = s.pin || null;
-      if(s.name && s.role) state.user = {name:s.name, role:s.role};
     }catch(e){}
   }
   function saveSession(){
     try{
-      localStorage.setItem("roster_session", JSON.stringify({
-        pin: state.pin,
-        name: state.user ? state.user.name : null,
-        role: state.user ? state.user.role : null
-      }));
+      localStorage.setItem("roster_session", JSON.stringify({ pin: state.pin }));
     }catch(e){}
   }
   function clearSession(){
@@ -442,6 +437,7 @@ nav.nav-list{display:flex;flex-direction:column;}
   // ---------------- API ----------------
   async function apiGet(){
     var res = await fetch("/api/roster", { headers: { "x-roster-pin": state.pin } });
+    if(res.status === 429) throw {authError:true, locked:true};
     if(res.status === 401) throw {authError:true};
     var data = await res.json();
     if(!data.ok) throw new Error(data.error || "Request failed");
@@ -453,6 +449,7 @@ nav.nav-list{display:flex;flex-direction:column;}
       headers: { "Content-Type":"application/json", "x-roster-pin": state.pin },
       body: JSON.stringify({resource:resource, action:action, payload:payload})
     });
+    if(res.status === 429) throw {authError:true, locked:true};
     if(res.status === 401) throw {authError:true};
     var data = await res.json();
     if(!data.ok) throw new Error(data.error || "Request failed");
@@ -462,6 +459,10 @@ nav.nav-list{display:flex;flex-direction:column;}
   async function loadAll(){
     try{
       var data = await apiGet();
+      if(data.role && (!state.user || state.user.role !== data.role)){
+        state.user = {name:data.role, role:data.role};
+        state.view = "dashboard";
+      }
       state.members = data.members;
       state.leave = data.leave;
       state.performance = data.performance;
@@ -476,8 +477,10 @@ nav.nav-list{display:flex;flex-direction:column;}
     }catch(err){
       if(err && err.authError){
         state.pin = null;
+        state.user = null;
         clearSession();
         window.__rosterPinFailed = true;
+        window.__rosterPinLocked = !!err.locked;
       }else{
         console.error("Load failed", err);
         showToast("Couldn't load the latest roster data.", "error", loadAll);
@@ -537,12 +540,6 @@ nav.nav-list{display:flex;flex-direction:column;}
     state.pin = pin;
     saveSession();
     loadAll();
-  }
-  function signIn(name, role){
-    state.user = {name:name, role:role};
-    state.view = "dashboard";
-    saveSession();
-    render();
   }
   function signOut(){
     state.user = null;
@@ -754,8 +751,7 @@ nav.nav-list{display:flex;flex-direction:column;}
       return;
     }
     if(!state.user){
-      app.innerHTML = renderLogin();
-      bindLogin();
+      app.innerHTML = '<div class="login-screen"><div class="login-card"><div class="login-mark">The Roster</div><p class="login-sub">Checking your passcode\u2026</p></div></div>';
       return;
     }
     app.innerHTML = renderShell();
@@ -787,53 +783,12 @@ nav.nav-list{display:flex;flex-direction:column;}
     pinInput.addEventListener("keydown", function(e){ if(e.key==="Enter") submit(); });
     pinInput.focus();
     if(window.__rosterPinFailed){
-      document.getElementById("pin-err").style.display = "block";
+      var pinErr = document.getElementById("pin-err");
+      pinErr.textContent = window.__rosterPinLocked ? "Too many wrong passcodes. Try again in 15 minutes." : "That passcode isn't right. Try again.";
+      pinErr.style.display = "block";
       window.__rosterPinFailed = false;
+      window.__rosterPinLocked = false;
     }
-  }
-
-  function renderLogin(){
-    return (
-      '<div class="login-screen">'+
-        '<div class="login-card">'+
-          '<div class="login-mark">The Roster</div>'+
-          '<h1>Sign in</h1>'+
-          '<p class="login-sub">Shared workspace for member records, projects, leave, and performance notes.</p>'+
-          '<div class="field"><label for="in-name">Your name</label><input id="in-name" type="text" placeholder="e.g. Gurumurthy H R" autocomplete="name"></div>'+
-          '<div class="field"><label>Your role</label>'+
-            '<div class="role-toggle">'+
-              '<button type="button" class="role-btn selected" data-role="CEO">CEO</button>'+
-              '<button type="button" class="role-btn" data-role="Web Manager">Web Manager</button>'+
-            '</div>'+
-          '</div>'+
-          '<button class="primary-btn" id="btn-signin">Enter the roster</button>'+
-          '<div class="login-error" id="login-err" style="display:none;">Enter your name to continue.</div>'+
-        '</div>'+
-      '</div>'
-    );
-  }
-  function bindLogin(){
-    var selectedRole = "CEO";
-    var roleBtns = document.querySelectorAll(".role-btn");
-    roleBtns.forEach(function(btn){
-      btn.addEventListener("click", function(){
-        roleBtns.forEach(function(b){ b.classList.remove("selected"); });
-        btn.classList.add("selected");
-        selectedRole = btn.getAttribute("data-role");
-      });
-    });
-    var nameInput = document.getElementById("in-name");
-    function submit(){
-      var name = nameInput.value;
-      if(!name || !name.trim()){
-        document.getElementById("login-err").style.display = "block";
-        return;
-      }
-      signIn(name.trim(), selectedRole);
-    }
-    document.getElementById("btn-signin").addEventListener("click", submit);
-    nameInput.addEventListener("keydown", function(e){ if(e.key==="Enter") submit(); });
-    nameInput.focus();
   }
 
   function navItemsHTML(){
@@ -855,7 +810,7 @@ nav.nav-list{display:flex;flex-direction:column;}
         '<aside class="sidebar">'+
           '<div class="sidebar-header">'+
             '<div class="sidebar-mark">The Roster</div>'+
-            '<div class="sidebar-user">Signed in as <strong>'+esc(state.user.name)+'</strong><br>'+esc(state.user.role)+'</div>'+
+            '<div class="sidebar-user">Signed in as <strong>'+esc(state.user.role)+'</strong></div>'+
           '</div>'+
           '<nav class="nav-list">'+ navItemsHTML() +'</nav>'+
           '<div class="sidebar-footer"><button class="signout-btn" id="btn-signout">Sign out</button></div>'+
@@ -1001,7 +956,8 @@ nav.nav-list{display:flex;flex-direction:column;}
       {key:"bookings", label:"Bookings"},
       {key:"kyc", label:"KYC"},
       {key:"enrollment", label:"Enrollment"},
-      {key:"existing", label:"Existing"}
+      {key:"existing", label:"Existing"},
+      {key:"leave", label:"Leave"}
     ];
     var html = '<div class="view-header"><div><h2>Intake</h2><div class="view-sub">Form responses, saved to your database as they come in.</div></div><button class="btn btn-sm" data-connect-tally="1">Connect forms</button></div>';
     html += '<div class="tab-row">' + tabs.map(function(t){
@@ -1033,23 +989,28 @@ nav.nav-list{display:flex;flex-direction:column;}
     html += '<div style="margin:16px 0;"><button class="btn btn-sm" data-refresh-intake="'+key+'">Refresh</button></div>';
     html += '<div class="ledger">' + rows.map(function(row, i){
       var fields = Object.keys(row).filter(function(k){ return k!=="Timestamp" && k.indexOf("__")!==0; });
-      var summary = fields.slice(0,4).map(function(f){ return esc(row[f]); }).filter(Boolean).join(" · ");
+      var summary = fields.slice(1,5).map(function(f){ return esc(row[f]); }).filter(Boolean).join(" · ");
       var action = "";
       if(key==="enrollment") action = '<button class="btn-sm btn" data-add-member-row="'+i+'">Add to roster</button>';
       if(key==="kyc") action = '<button class="btn-sm btn" data-save-kyc-row="'+i+'">Save record</button>';
       if(key==="bookings") action = '<button class="btn-sm btn" data-create-project-row="'+i+'">Create project</button>';
       var badge = "";
-      if(key==="existing"){
+      if(key==="existing" || key==="leave"){
         var m = row["__match"] || "none";
+        var who = key==="leave" ? "member" : "customer";
+        var where = key==="leave" ? "on your roster" : "in your records";
         var look = {
-          verified:{bg:"#e8f3ea", fg:"#2f6b3f", label:"✓ Verified customer" + (row["__matchName"] ? " — " + row["__matchName"] : "")},
+          verified:{bg:"#e8f3ea", fg:"#2f6b3f", label:"✓ Verified " + who + (row["__matchName"] ? " — " + row["__matchName"] : "")},
           partial:{bg:"#fdf1d8", fg:"#8a5a00", label:"⚠ Partly matched" + (row["__matchName"] ? " — " + row["__matchName"] : "")},
-          none:{bg:"#f8e3df", fg:"#9b2c1f", label:"✕ Not found in your records"}
-        }[m] || {bg:"#f8e3df", fg:"#9b2c1f", label:"✕ Not found in your records"};
+          none:{bg:"#f8e3df", fg:"#9b2c1f", label:"✕ Not found " + where}
+        }[m] || {bg:"#f8e3df", fg:"#9b2c1f", label:"✕ Not found " + where};
         badge = '<div style="margin-top:6px;"><span style="display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:500;background:'+look.bg+';color:'+look.fg+';">'+esc(look.label)+'</span>'+
           '<div class="cell-sub" style="margin-top:4px;">'+esc(row["__matchNote"]||"")+'</div></div>';
-        if(m==="verified" && row["What would you like to do?"]==="Book another service"){
+        if(key==="existing" && m==="verified" && row["What would you like to do?"]==="Book another service"){
           action = '<button class="btn-sm btn" data-create-project-existing="'+i+'">Create project</button>';
+        }
+        if(key==="leave" && m==="verified"){
+          action = '<button class="btn-sm btn" data-add-leave-row="'+i+'">Add to leave requests</button>';
         }
       }
       return '<div class="ledger-row" style="grid-template-columns:1fr auto auto;">'+
@@ -1428,6 +1389,17 @@ nav.nav-list{display:flex;flex-direction:column;}
       el.addEventListener("click", function(){
         var row = state.intakeRows.kyc[parseInt(el.getAttribute("data-save-kyc-row"),10)];
         saveKycFromRow(row);
+      });
+    });
+    document.querySelectorAll("[data-add-leave-row]").forEach(function(el){
+      el.addEventListener("click", function(){
+        var row = state.intakeRows.leave[parseInt(el.getAttribute("data-add-leave-row"),10)];
+        if(!row || row["__match"]!=="verified" || !row["__memberId"]) return;
+        mutate("leave", "create", {
+          id:uid(), memberId:row["__memberId"], type:row["Leave Type"]||"Personal",
+          startDate:row["Start Date"], endDate:row["End Date"],
+          note:(row["Reason"]||"").trim(), requestedBy: state.user.name
+        }, "Leave request added — approve it in the Leave tab.");
       });
     });
     document.querySelectorAll("[data-create-project-existing]").forEach(function(el){

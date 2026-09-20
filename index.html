@@ -1003,7 +1003,7 @@ nav.nav-list{display:flex;flex-direction:column;}
       {key:"enrollment", label:"Enrollment"},
       {key:"existing", label:"Existing"}
     ];
-    var html = '<div class="view-header"><div><h2>Intake</h2><div class="view-sub">Live responses pulled from your Tally forms.</div></div></div>';
+    var html = '<div class="view-header"><div><h2>Intake</h2><div class="view-sub">Form responses, saved to your database as they come in.</div></div><button class="btn btn-sm" data-connect-tally="1">Connect forms</button></div>';
     html += '<div class="tab-row">' + tabs.map(function(t){
       return '<button class="tab-btn '+(state.intakeTab===t.key?'active':'')+'" data-intake-tab="'+t.key+'">'+t.label+'</button>';
     }).join("") + '</div>';
@@ -1021,7 +1021,7 @@ nav.nav-list{display:flex;flex-direction:column;}
     }
     if(!state.sheetsConfigured[key]){
       html += '<div class="empty-state" style="margin-top:16px;"><p>The '+key+' form isn\'t connected yet.</p>'+
-        '<p class="field-hint">Add your Tally API key in Vercel to connect it — see SETUP.md.</p>'+
+        '<p class="field-hint">Add the Tally signing secret in Vercel, then tap Connect forms — see SETUP.md.</p>'+
         '<button class="btn" data-refresh-intake="'+key+'">Check again</button></div>';
       return html;
     }
@@ -1397,6 +1397,23 @@ nav.nav-list{display:flex;flex-direction:column;}
 
     document.querySelectorAll("[data-intake-tab]").forEach(function(el){
       el.addEventListener("click", function(){ setIntakeTab(el.getAttribute("data-intake-tab")); });
+    });
+    document.querySelectorAll("[data-connect-tally]").forEach(function(el){
+      el.addEventListener("click", async function(){
+        el.disabled = true;
+        try{
+          var r = await apiPost("tally", "connect", {});
+          var failed = (r.results||[]).filter(function(x){ return x.status==="failed"; });
+          if(failed.length){
+            showToast("Couldn't connect: " + failed.map(function(f){ return f.form+" ("+f.code+")"; }).join(", "), "error");
+          } else {
+            showToast("All four forms are connected to your database.", "success");
+          }
+        }catch(err){
+          showToast((err && err.message && !err.authError) ? err.message : "Couldn't connect the forms.", "error");
+        }
+        el.disabled = false;
+      });
     });
     document.querySelectorAll("[data-refresh-intake]").forEach(function(el){
       el.addEventListener("click", function(){ loadIntake(el.getAttribute("data-refresh-intake")); });

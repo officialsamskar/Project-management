@@ -20,6 +20,7 @@ FORM_KEYS[process.env.TALLY_BOOKINGS_FORM_ID || "xXGlx5"] = "bookings";
 FORM_KEYS[process.env.TALLY_KYC_FORM_ID || "RGOVK9"] = "kyc";
 FORM_KEYS[process.env.TALLY_ENROLLMENT_FORM_ID || "obJk6P"] = "enrollment";
 FORM_KEYS[process.env.TALLY_EXISTING_FORM_ID || "1AjRpO"] = "existing";
+FORM_KEYS[process.env.TALLY_LEAVE_FORM_ID || "aQWkRW"] = "leave";
 
 // Tally signs the exact bytes it sends, so the raw body is needed to check
 // the signature.

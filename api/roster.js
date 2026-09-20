@@ -5,19 +5,28 @@ const crypto = require('crypto');
 // settings (Settings -> Environment Variables). Nothing sensitive is
 // hardcoded in this file, so it's safe to commit / share / push to a repo.
 const DATABASE_URL = process.env.DATABASE_URL;
-// Two passcodes, one per role. ROSTER_PIN still works as a single shared
-// passcode if neither of the role-specific ones is set.
-const PORTAL_PINS = [process.env.ROSTER_PIN_CEO, process.env.ROSTER_PIN_WEB_MANAGER]
-  .filter(Boolean).map(String);
-if(!PORTAL_PINS.length && process.env.ROSTER_PIN){ PORTAL_PINS.push(String(process.env.ROSTER_PIN)); }
+// One passcode per role. The passcode a person enters decides who they are:
+// the server works out the role from it, and nothing the browser sends (name,
+// role) is trusted. ROSTER_PIN still works as a single shared passcode if
+// neither of the role-specific ones is set.
+const ROLE_PINS = [
+  { role: "CEO", pin: process.env.ROSTER_PIN_CEO },
+  { role: "Web Manager", pin: process.env.ROSTER_PIN_WEB_MANAGER }
+].filter(function(r){ return !!r.pin; }).map(function(r){ return { role: r.role, pin: String(r.pin) }; });
+if(!ROLE_PINS.length && process.env.ROSTER_PIN){ ROLE_PINS.push({ role: "Team", pin: String(process.env.ROSTER_PIN) }); }
 
-function pinMatches(given){
+function roleForPin(given){
   var g = Buffer.from(String(given || ""));
-  return PORTAL_PINS.some(function(p){
-    var b = Buffer.from(p);
-    return b.length === g.length && crypto.timingSafeEqual(b, g);
+  var found = null;
+  ROLE_PINS.forEach(function(r){
+    var b = Buffer.from(r.pin);
+    if(b.length === g.length && crypto.timingSafeEqual(b, g) && !found){ found = r.role; }
   });
+  return found;
 }
+
+// Too many wrong passcodes from one address in a short time locks it out.
+const MAX_FAILED_LOGINS = 10;
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const FROM_EMAIL = process.env.FROM_EMAIL || "onboarding@resend.dev"; // Resend's shared test sender; verify your own domain for production
 
@@ -33,7 +42,8 @@ const TALLY_FORM_IDS = {
   bookings: process.env.TALLY_BOOKINGS_FORM_ID || "xXGlx5",
   kyc: process.env.TALLY_KYC_FORM_ID || "RGOVK9",
   enrollment: process.env.TALLY_ENROLLMENT_FORM_ID || "obJk6P",
-  existing: process.env.TALLY_EXISTING_FORM_ID || "1AjRpO"
+  existing: process.env.TALLY_EXISTING_FORM_ID || "1AjRpO",
+  leave: process.env.TALLY_LEAVE_FORM_ID || "aQWkRW"
 };
 const MEMBER_ENROLLMENT_FORM_URL = process.env.MEMBER_ENROLLMENT_FORM_URL || "";
 
@@ -146,6 +156,7 @@ const INTAKE_FIELD_ORDER = {
   bookings: ["Client Name", "Phone", "Email", "Service", "Event Date", "Location", "Notes"],
   kyc: ["Full Name", "Phone", "Email", "Address"],
   enrollment: ["Full Name", "Job Title", "Department", "Email", "Phone", "Location"],
+  leave: ["Full Name", "Member Code", "Leave Type", "Start Date", "End Date", "Reason"],
   existing: ["Client Name", "Phone", "Receipt Number", "What would you like to do?", "Service", "Event Date", "Location", "What should we update?", "How was your experience?", "Your feedback"]
 };
 function orderAnswers(key, data){
@@ -259,16 +270,69 @@ async function annotateExisting(rows){
   });
 }
 
+// ---------------- Leave-application check ----------------
+// A leave application only counts as verified when the member code belongs to
+// a real member on the roster, the name matches that member, and the dates
+// make sense. Only verified ones get the "Add to leave requests" button.
+async function annotateLeave(rows){
+  var members = await sql`SELECT id, member_code, name FROM employees`;
+  return rows.map(function(row){
+    var code = String(row["Member Code"] || "").trim().toUpperCase();
+    var name = normName(row["Full Name"]);
+    var member = code ? members.find(function(m){ return String(m.member_code || "").toUpperCase() === code; }) : null;
+    var status = "none", customer = "", memberId = "", note = "";
+    if(!member){
+      note = code ? "No member on the roster has this member code." : "No member code was given.";
+    } else {
+      customer = member.name; memberId = member.id;
+      var mn = normName(member.name);
+      var nameOk = name.length >= 3 && (name === mn || mn.indexOf(name) !== -1 || name.indexOf(mn) !== -1);
+      if(nameOk){
+        status = "verified"; note = "Member code and name match the roster.";
+        var start = String(row["Start Date"] || ""), end = String(row["End Date"] || "");
+        var okDate = /^\d{4}-\d{2}-\d{2}$/;
+        if(!okDate.test(start) || !okDate.test(end) || end < start){
+          status = "partial"; note = "Member matches, but the dates look wrong (a date is missing, or the end is before the start).";
+        }
+      } else {
+        status = "partial"; note = "That member code belongs to " + member.name + ", but the name entered is different.";
+      }
+    }
+    var out = Object.assign({}, row);
+    out["__match"] = status;
+    out["__matchName"] = customer;
+    out["__matchNote"] = note;
+    out["__memberId"] = memberId;
+    return out;
+  });
+}
+
 module.exports = async (req, res) => {
   res.setHeader('Content-Type', 'application/json');
 
-  if(!DATABASE_URL || !PORTAL_PINS.length){
+  if(!DATABASE_URL || !ROLE_PINS.length){
     res.status(500).json({ ok:false, error:"Server is missing DATABASE_URL or the passcodes (ROSTER_PIN_CEO / ROSTER_PIN_WEB_MANAGER). Set them in Vercel project settings." });
     return;
   }
 
   var pinHeader = req.headers['x-roster-pin'];
-  if(!pinMatches(pinHeader)){
+  var ip = String(req.headers['x-forwarded-for'] || "").split(",")[0].trim() || "unknown";
+
+  // Locked out? Checked before the passcode, so guessing can't just carry on.
+  try{
+    var recent = await sql`SELECT count(*)::int AS n FROM auth_failures WHERE ip = ${ip} AND at > now() - interval '15 minutes'`;
+    if(recent[0] && recent[0].n >= MAX_FAILED_LOGINS){
+      res.status(429).json({ ok:false, error:"Too many wrong passcodes. Try again in 15 minutes." });
+      return;
+    }
+  }catch(e){ console.error("Lockout check failed", e && e.message); }
+
+  var role = roleForPin(pinHeader);
+  if(!role){
+    try{
+      await sql`INSERT INTO auth_failures (ip) VALUES (${ip})`;
+      await sql`DELETE FROM auth_failures WHERE at < now() - interval '1 day'`;
+    }catch(e){ console.error("Could not record failed login", e && e.message); }
     res.status(401).json({ ok:false, error:"Incorrect passcode." });
     return;
   }
@@ -286,6 +350,7 @@ module.exports = async (req, res) => {
       var services = await sql`SELECT * FROM services ORDER BY sort_order ASC, name ASC`;
       res.status(200).json({
         ok:true,
+        role: role,
         members: members.map(mapMember),
         leave: leave.map(mapLeave),
         performance: performance.map(mapPerformance),
@@ -300,7 +365,8 @@ module.exports = async (req, res) => {
           bookings: !!TALLY_SIGNING_SECRET,
           kyc: !!TALLY_SIGNING_SECRET,
           enrollment: !!TALLY_SIGNING_SECRET,
-          existing: !!TALLY_SIGNING_SECRET
+          existing: !!TALLY_SIGNING_SECRET,
+          leave: !!TALLY_SIGNING_SECRET
         },
         memberEnrollmentFormUrl: MEMBER_ENROLLMENT_FORM_URL
       });
@@ -312,6 +378,8 @@ module.exports = async (req, res) => {
       var resource = body.resource;
       var action = body.action;
       var p = body.payload || {};
+      // Who did it comes from the passcode, never from the browser.
+      p.requestedBy = role; p.author = role; p.issuedBy = role;
 
       // ---------- connect Tally forms (register webhooks) ----------
       if(resource === 'tally' && action === 'connect'){
@@ -328,6 +396,7 @@ module.exports = async (req, res) => {
         if(!TALLY_FORM_IDS.hasOwnProperty(p.key)){ res.status(400).json({ ok:false, error:"Unknown intake form." }); return; }
         var sheetResult = await readIntake(p.key);
         if(p.key === 'existing' && sheetResult.configured){ sheetResult.rows = await annotateExisting(sheetResult.rows); }
+        if(p.key === 'leave' && sheetResult.configured){ sheetResult.rows = await annotateLeave(sheetResult.rows); }
         res.status(200).json({ ok:true, configured: sheetResult.configured, rows: sheetResult.rows });
         return;
       }

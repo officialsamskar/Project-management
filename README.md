@@ -19,7 +19,8 @@ these files, so it's safe to commit to GitHub or share.
    | Key | Value |
    |---|---|
    | `DATABASE_URL` | **Required.** Your Neon Postgres connection string |
-   | `ROSTER_PIN` | **Required.** The shared passcode for the CEO and Web Manager |
+   | `ROSTER_PIN_CEO` | **Required.** The CEO's passcode |
+   | `ROSTER_PIN_WEB_MANAGER` | **Required.** The Web Manager's passcode |
    | `RESEND_API_KEY` | *(optional)* API key from your Resend account (resend.com), for email notifications |
    | `FROM_EMAIL` | *(optional)* sender address — defaults to Resend's shared test address if unset |
    | `TALLY_API_KEY` | *(optional)* Tally API key, for the Intake tab — see **SETUP.md** |
@@ -30,16 +31,18 @@ these files, so it's safe to commit to GitHub or share.
 4. Redeploy (or trigger a new deployment) so the environment variables take
    effect.
 
-Without `DATABASE_URL` and `ROSTER_PIN` set, the app will load but every request will
-fail with a clear "Server is missing DATABASE_URL or ROSTER_PIN" error —
+Without `DATABASE_URL` and the two passcodes set, the app will load but every request will
+fail with a clear "Server is missing DATABASE_URL or the passcodes" error —
 so it's easy to tell if a step was missed.
 
 ## Changing the passcode later
 
-The passcode is never stored in code — only in the `ROSTER_PIN` environment
-variable. To reset it, edit that variable's value in Vercel project
-**Settings → Environment Variables** (e.g. to `0000`), then redeploy so the
-change takes effect. No file edits needed.
+Passcodes are never stored in code — only in the `ROSTER_PIN_CEO` and
+`ROSTER_PIN_WEB_MANAGER` environment variables. To reset one, edit that
+variable's value in Vercel project **Settings → Environment Variables**, then
+redeploy so the change takes effect. No file edits needed. (`ROSTER_PIN`, a
+single shared passcode, still works only if neither role-specific variable is
+set.)
 
 ## Database schema
 
@@ -74,8 +77,10 @@ feature has been removed entirely.
   current services).
 - **Projects** now carry client name, service, budget, location, and event
   date.
-- **Intake** — pulls live responses from three Tally forms (bookings, KYC,
-  member enrollment) with one-click actions to turn a response into a
-  project, a KYC record, or a new member. The forms are already created; see
+- **Intake** — pulls live responses from four Tally forms (bookings, KYC,
+  member enrollment, existing customer) with one-click actions to turn a
+  response into a project, a KYC record, or a new member. Existing-customer
+  responses are checked against your receipts and KYC records and marked
+  verified, partly matched, or not found. The forms are already created; see
   **SETUP.md** — you only need to add a `TALLY_API_KEY` (plus
   `MEMBER_ENROLLMENT_FORM_URL` for invite emails).

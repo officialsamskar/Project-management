@@ -385,10 +385,10 @@ nav.nav-list{display:flex;flex-direction:column;}
     testimonials:[],
     kycRecords:[],
     services:[],
-    sheetsConfigured:{bookings:false, kyc:false, enrollment:false},
+    sheetsConfigured:{bookings:false, kyc:false, enrollment:false, existing:false},
     memberEnrollmentFormUrl:"",
     intakeTab:"bookings",
-    intakeRows:{bookings:null, kyc:null, enrollment:null},
+    intakeRows:{bookings:null, kyc:null, enrollment:null, existing:null},
     intakeLoading:false,
     loading:true,
     modal:null
@@ -768,7 +768,7 @@ nav.nav-list{display:flex;flex-direction:column;}
         '<div class="login-card">'+
           '<div class="login-mark">The Roster</div>'+
           '<h1>Enter passcode</h1>'+
-          '<p class="login-sub">This portal is private to Samskar\'s CEO and Web Manager. Enter the shared passcode to continue.</p>'+
+          '<p class="login-sub">This portal is private to Samskar\'s CEO and Web Manager. Enter your passcode to continue.</p>'+
           '<div class="field"><label for="in-pin">Passcode</label><input id="in-pin" type="password" inputmode="numeric" placeholder="\u2022\u2022\u2022\u2022\u2022\u2022" autocomplete="off"></div>'+
           '<button class="primary-btn" id="btn-pin-submit">Continue</button>'+
           '<div class="login-error" id="pin-err" style="display:none;">That passcode isn\'t right. Try again.</div>'+
@@ -1000,7 +1000,8 @@ nav.nav-list{display:flex;flex-direction:column;}
     var tabs = [
       {key:"bookings", label:"Bookings"},
       {key:"kyc", label:"KYC"},
-      {key:"enrollment", label:"Enrollment"}
+      {key:"enrollment", label:"Enrollment"},
+      {key:"existing", label:"Existing"}
     ];
     var html = '<div class="view-header"><div><h2>Intake</h2><div class="view-sub">Live responses pulled from your Tally forms.</div></div></div>';
     html += '<div class="tab-row">' + tabs.map(function(t){
@@ -1031,14 +1032,28 @@ nav.nav-list{display:flex;flex-direction:column;}
 
     html += '<div style="margin:16px 0;"><button class="btn btn-sm" data-refresh-intake="'+key+'">Refresh</button></div>';
     html += '<div class="ledger">' + rows.map(function(row, i){
-      var fields = Object.keys(row).filter(function(k){ return k!=="Timestamp"; });
+      var fields = Object.keys(row).filter(function(k){ return k!=="Timestamp" && k.indexOf("__")!==0; });
       var summary = fields.slice(0,4).map(function(f){ return esc(row[f]); }).filter(Boolean).join(" · ");
       var action = "";
       if(key==="enrollment") action = '<button class="btn-sm btn" data-add-member-row="'+i+'">Add to roster</button>';
       if(key==="kyc") action = '<button class="btn-sm btn" data-save-kyc-row="'+i+'">Save record</button>';
       if(key==="bookings") action = '<button class="btn-sm btn" data-create-project-row="'+i+'">Create project</button>';
+      var badge = "";
+      if(key==="existing"){
+        var m = row["__match"] || "none";
+        var look = {
+          verified:{bg:"#e8f3ea", fg:"#2f6b3f", label:"✓ Verified customer" + (row["__matchName"] ? " — " + row["__matchName"] : "")},
+          partial:{bg:"#fdf1d8", fg:"#8a5a00", label:"⚠ Partly matched" + (row["__matchName"] ? " — " + row["__matchName"] : "")},
+          none:{bg:"#f8e3df", fg:"#9b2c1f", label:"✕ Not found in your records"}
+        }[m] || {bg:"#f8e3df", fg:"#9b2c1f", label:"✕ Not found in your records"};
+        badge = '<div style="margin-top:6px;"><span style="display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:500;background:'+look.bg+';color:'+look.fg+';">'+esc(look.label)+'</span>'+
+          '<div class="cell-sub" style="margin-top:4px;">'+esc(row["__matchNote"]||"")+'</div></div>';
+        if(m==="verified" && row["What would you like to do?"]==="Book another service"){
+          action = '<button class="btn-sm btn" data-create-project-existing="'+i+'">Create project</button>';
+        }
+      }
       return '<div class="ledger-row" style="grid-template-columns:1fr auto auto;">'+
-        '<div><div class="cell-name">'+esc(row[fields[0]]||"—")+'</div><div class="cell-sub">'+summary+'</div></div>'+
+        '<div><div class="cell-name">'+esc(row[fields[0]]||"—")+'</div><div class="cell-sub">'+summary+'</div>'+badge+'</div>'+
         '<div class="cell-sub">'+esc(row["Timestamp"]||"")+'</div>'+
         '<div>'+action+'</div>'+
       '</div>';
@@ -1396,6 +1411,12 @@ nav.nav-list{display:flex;flex-direction:column;}
       el.addEventListener("click", function(){
         var row = state.intakeRows.kyc[parseInt(el.getAttribute("data-save-kyc-row"),10)];
         saveKycFromRow(row);
+      });
+    });
+    document.querySelectorAll("[data-create-project-existing]").forEach(function(el){
+      el.addEventListener("click", function(){
+        var row = state.intakeRows.existing[parseInt(el.getAttribute("data-create-project-existing"),10)];
+        if(row && row["__match"]==="verified"){ createProjectFromBooking(row); }
       });
     });
     document.querySelectorAll("[data-create-project-row]").forEach(function(el){

@@ -138,12 +138,33 @@ function formatTimestamp(iso){
 // by question title (plus "Timestamp"), newest first. The front end reads
 // fields like row["Client Name"], so keep the form's question titles as listed
 // in SETUP.md.
+// The database stores each answer set as jsonb, which doesn't keep the order the
+// questions were asked in, so put them back in the forms' own order (any extra
+// questions go at the end). The first answer is what the Intake list shows as
+// the person's name.
+const INTAKE_FIELD_ORDER = {
+  bookings: ["Client Name", "Phone", "Email", "Service", "Event Date", "Location", "Notes"],
+  kyc: ["Full Name", "Phone", "Email", "Address"],
+  enrollment: ["Full Name", "Job Title", "Department", "Email", "Phone", "Location"],
+  existing: ["Client Name", "Phone", "Receipt Number", "What would you like to do?", "Service", "Event Date", "Location", "What should we update?", "How was your experience?", "Your feedback"]
+};
+function orderAnswers(key, data){
+  var out = {};
+  (INTAKE_FIELD_ORDER[key] || []).forEach(function(k){
+    if(Object.prototype.hasOwnProperty.call(data, k)) out[k] = data[k];
+  });
+  Object.keys(data).forEach(function(k){
+    if(!Object.prototype.hasOwnProperty.call(out, k)) out[k] = data[k];
+  });
+  return out;
+}
+
 async function readIntake(key){
   if(!TALLY_SIGNING_SECRET) return { configured:false, rows:[] };
   var found = await sql`SELECT id, submitted_at, data FROM intake_submissions WHERE form_key = ${key} ORDER BY submitted_at DESC LIMIT 500`;
   var rows = found.map(function(r){
     var data = (typeof r.data === "string") ? JSON.parse(r.data) : (r.data || {});
-    return Object.assign({ "Timestamp": formatTimestamp(r.submitted_at) }, data);
+    return Object.assign({ "Timestamp": formatTimestamp(r.submitted_at) }, orderAnswers(key, data));
   });
   return { configured:true, rows: rows };
 }

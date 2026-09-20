@@ -29,7 +29,8 @@ const TALLY_API_KEY = process.env.TALLY_API_KEY || "";
 const TALLY_FORM_IDS = {
   bookings: process.env.TALLY_BOOKINGS_FORM_ID || "xXGlx5",
   kyc: process.env.TALLY_KYC_FORM_ID || "RGOVK9",
-  enrollment: process.env.TALLY_ENROLLMENT_FORM_ID || "obJk6P"
+  enrollment: process.env.TALLY_ENROLLMENT_FORM_ID || "obJk6P",
+  existing: process.env.TALLY_EXISTING_FORM_ID || "1AjRpO"
 };
 const MEMBER_ENROLLMENT_FORM_URL = process.env.MEMBER_ENROLLMENT_FORM_URL || "";
 
@@ -222,6 +223,66 @@ async function fetchTallyForm(key){
   return { configured:true, rows: rows };
 }
 
+// ---------------- Existing-customer check ----------------
+// Tally can't look anything up while a form is being filled in, so responses
+// to the Existing Customer form are checked here against your own records.
+// A response only counts as "verified" when the receipt number exists, the
+// phone number is one on file for that receipt's customer, and the name
+// matches. Anything less is flagged so nobody acts on an unverified claim.
+function last10(v){
+  var d = String(v || "").replace(/\D/g, "");
+  return d.length >= 10 ? d.slice(-10) : "";
+}
+function normName(v){ return String(v || "").toLowerCase().replace(/[^a-z0-9]/g, ""); }
+
+async function annotateExisting(rows){
+  var receipts = await sql`SELECT receipt_no, client_name, contact FROM receipts`;
+  var kycs = await sql`SELECT full_name, phone FROM kyc_records`;
+
+  return rows.map(function(row){
+    var phone = last10(row["Phone"]);
+    var name = normName(row["Client Name"]);
+    var rno = String(row["Receipt Number"] || "").trim().toUpperCase();
+    var receipt = rno ? receipts.find(function(r){ return String(r.receipt_no || "").toUpperCase() === rno; }) : null;
+
+    var status = "none", customer = "", note = "";
+    if(receipt){
+      var recName = normName(receipt.client_name);
+      customer = receipt.client_name;
+      var phonesOnFile = [last10(receipt.contact)];
+      receipts.forEach(function(r){ if(normName(r.client_name) === recName) phonesOnFile.push(last10(r.contact)); });
+      kycs.forEach(function(k){ if(normName(k.full_name) === recName) phonesOnFile.push(last10(k.phone)); });
+      var phoneOk = !!phone && phonesOnFile.indexOf(phone) !== -1;
+      var nameOk = name.length >= 3 && (name === recName || recName.indexOf(name) !== -1 || name.indexOf(recName) !== -1);
+      if(phoneOk && nameOk){
+        status = "verified"; note = "Receipt, phone and name all match your records.";
+      } else if(phoneOk){
+        status = "partial"; note = "Receipt and phone match, but the name differs from the receipt (" + receipt.client_name + ").";
+      } else {
+        status = "partial"; note = "That receipt exists, but this phone number isn't on file for " + receipt.client_name + ".";
+      }
+    } else {
+      var byPhone = null;
+      if(phone){
+        var k = kycs.find(function(x){ return last10(x.phone) === phone; });
+        var r = receipts.find(function(x){ return last10(x.contact) === phone; });
+        byPhone = k ? k.full_name : (r ? r.client_name : null);
+      }
+      if(byPhone){
+        status = "partial"; customer = byPhone;
+        note = "This phone number is on file, but the receipt number doesn't match any receipt.";
+      } else {
+        note = "Nothing in your records matches this receipt number or phone number.";
+      }
+    }
+    var out = Object.assign({}, row);
+    out["__match"] = status;
+    out["__matchName"] = customer;
+    out["__matchNote"] = note;
+    return out;
+  });
+}
+
 module.exports = async (req, res) => {
   res.setHeader('Content-Type', 'application/json');
 
@@ -262,7 +323,8 @@ module.exports = async (req, res) => {
         sheetsConfigured: {
           bookings: !!(TALLY_API_KEY && TALLY_FORM_IDS.bookings),
           kyc: !!(TALLY_API_KEY && TALLY_FORM_IDS.kyc),
-          enrollment: !!(TALLY_API_KEY && TALLY_FORM_IDS.enrollment)
+          enrollment: !!(TALLY_API_KEY && TALLY_FORM_IDS.enrollment),
+          existing: !!(TALLY_API_KEY && TALLY_FORM_IDS.existing)
         },
         memberEnrollmentFormUrl: MEMBER_ENROLLMENT_FORM_URL
       });
@@ -279,6 +341,7 @@ module.exports = async (req, res) => {
       if(resource === 'sheet' && action === 'fetch'){
         if(!TALLY_FORM_IDS.hasOwnProperty(p.key)){ res.status(400).json({ ok:false, error:"Unknown intake form." }); return; }
         var sheetResult = await fetchTallyForm(p.key);
+        if(p.key === 'existing' && sheetResult.configured){ sheetResult.rows = await annotateExisting(sheetResult.rows); }
         res.status(200).json({ ok:true, configured: sheetResult.configured, rows: sheetResult.rows });
         return;
       }

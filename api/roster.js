@@ -29,6 +29,7 @@ function roleForPin(given){
 const MAX_FAILED_LOGINS = 10;
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const FROM_EMAIL = process.env.FROM_EMAIL || "onboarding@resend.dev"; // Resend's shared test sender; verify your own domain for production
+const NOTIFY_EMAIL = process.env.NOTIFY_EMAIL || ""; // admin inbox for leave-request alerts, etc.
 
 // Optional: Tally API key, used to pull live form responses into the Intake tab.
 // See SETUP.md. The form IDs below are the three forms created for this app
@@ -447,6 +448,19 @@ module.exports = async (req, res) => {
       // ---------- leave ----------
       if(resource === 'leave' && action === 'create'){
         await sql`INSERT INTO leave_requests (id, employee_id, type, start_date, end_date, note, status, requested_by) VALUES (${p.id}, ${p.memberId}, ${p.type}, ${p.startDate}, ${p.endDate}, ${p.note||null}, 'pending', ${p.requestedBy||null})`;
+        if(NOTIFY_EMAIL){
+          var leaveEmpRows = await sql`SELECT name FROM employees WHERE id=${p.memberId}`;
+          var leaveEmpName = (leaveEmpRows[0] && leaveEmpRows[0].name) || p.memberId;
+          await sendEmail(
+            NOTIFY_EMAIL,
+            "Leave request: " + leaveEmpName,
+            "<p><strong>Member:</strong> " + leaveEmpName + "</p>" +
+            "<p><strong>Type:</strong> " + p.type + "</p>" +
+            "<p><strong>Dates:</strong> " + p.startDate + " to " + p.endDate + "</p>" +
+            (p.note ? "<p><strong>Note:</strong> " + p.note + "</p>" : "") +
+            "<p>— The Roster</p>"
+          );
+        }
         res.status(200).json({ ok:true });
         return;
       }
@@ -542,10 +556,34 @@ module.exports = async (req, res) => {
       if(resource === 'receipts' && action === 'create'){
         var rcptRow = await sql`SELECT 'RCPT-' || LPAD(nextval('receipt_code_seq')::text, 4, '0') AS code`;
         var receiptNo = rcptRow[0].code;
+        var receiptDate = p.receiptDate||new Date().toISOString().slice(0,10);
         await sql`
           INSERT INTO receipts (id, receipt_no, client_name, contact, service, amount, payment_mode, project_id, note, issued_by, receipt_date)
-          VALUES (${p.id}, ${receiptNo}, ${p.clientName}, ${p.contact||null}, ${p.service||null}, ${p.amount}, ${p.paymentMode||null}, ${p.projectId||null}, ${p.note||null}, ${p.issuedBy||null}, ${p.receiptDate||new Date().toISOString().slice(0,10)})
+          VALUES (${p.id}, ${receiptNo}, ${p.clientName}, ${p.contact||null}, ${p.service||null}, ${p.amount}, ${p.paymentMode||null}, ${p.projectId||null}, ${p.note||null}, ${p.issuedBy||null}, ${receiptDate})
         `;
+        // If "contact" looks like an email, send the customer their receipt.
+        if(p.contact && p.contact.indexOf("@") !== -1){
+          await sendEmail(
+            p.contact,
+            "Your receipt from Samskar — " + receiptNo,
+            "<p>Namaste " + p.clientName + ",</p>" +
+            "<p>Your project has been received. Here is your receipt:</p>" +
+            "<p><strong>Receipt No:</strong> " + receiptNo + "</p>" +
+            (p.service ? "<p><strong>Service:</strong> " + p.service + "</p>" : "") +
+            "<p><strong>Amount:</strong> " + p.amount + "</p>" +
+            (p.paymentMode ? "<p><strong>Payment mode:</strong> " + p.paymentMode + "</p>" : "") +
+            "<p><strong>Date:</strong> " + receiptDate + "</p>" +
+            "<p>— Samskar</p>"
+          );
+          if(NOTIFY_EMAIL){
+            await sendEmail(
+              NOTIFY_EMAIL,
+              "Receipt issued: " + receiptNo,
+              "<p><strong>Client:</strong> " + p.clientName + " (" + p.contact + ")</p>" +
+              "<p><strong>Amount:</strong> " + p.amount + "</p>"
+            );
+          }
+        }
         res.status(200).json({ ok:true, receiptNo: receiptNo });
         return;
       }

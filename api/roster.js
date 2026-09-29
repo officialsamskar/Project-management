@@ -1,5 +1,6 @@
 const { neon } = require('@neondatabase/serverless');
 const crypto = require('crypto');
+const mail = require('./_mail');
 
 // All of these must be set as Environment Variables in the Vercel project
 // settings (Settings -> Environment Variables). Nothing sensitive is
@@ -29,7 +30,7 @@ function roleForPin(given){
 const MAX_FAILED_LOGINS = 10;
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const FROM_EMAIL = process.env.FROM_EMAIL || "onboarding@resend.dev"; // Resend's shared test sender; verify your own domain for production
-const NOTIFY_EMAIL = process.env.NOTIFY_EMAIL || ""; // admin inbox for leave-request alerts, etc.
+const NOTIFY_EMAIL = process.env.NOTIFY_EMAIL || mail.ADMIN_EMAIL; // official.samskar@gmail.com unless overridden
 
 // Optional: Tally API key, used to pull live form responses into the Intake tab.
 // See SETUP.md. The form IDs below are the three forms created for this app
@@ -49,6 +50,10 @@ const TALLY_FORM_IDS = {
 const MEMBER_ENROLLMENT_FORM_URL = process.env.MEMBER_ENROLLMENT_FORM_URL || "";
 
 const sql = DATABASE_URL ? neon(DATABASE_URL) : null;
+// Member logins live in the Members site's `users` table. If that is the
+// same Neon database (the usual case) nothing needs setting; otherwise set
+// MEMBERS_DATABASE_URL in Vercel.
+const membersSql = process.env.MEMBERS_DATABASE_URL ? neon(process.env.MEMBERS_DATABASE_URL) : sql;
 
 // ---------------- mappers ----------------
 function mapMember(r){
@@ -56,7 +61,8 @@ function mapMember(r){
     id: r.id, memberCode: r.member_code, name: r.name, title: r.title, department: r.department,
     email: r.email, phone: r.phone, location: r.location,
     startDate: r.start_date ? String(r.start_date).slice(0,10) : null,
-    status: r.status
+    status: r.status, loginEmail: r.login_email || null,
+    credentialsSentAt: r.credentials_sent_at ? String(r.credentials_sent_at) : null
   };
 }
 function mapLeave(r){
@@ -87,9 +93,12 @@ function mapHandover(r){
 function mapReceipt(r){
   return {
     id: r.id, receiptNo: r.receipt_no, clientName: r.client_name, contact: r.contact,
-    service: r.service, amount: Number(r.amount), paymentMode: r.payment_mode,
+    service: r.service, amount: r.amount != null ? Number(r.amount) : null, paymentMode: r.payment_mode,
     projectId: r.project_id, note: r.note, issuedBy: r.issued_by,
-    receiptDate: String(r.receipt_date).slice(0,10)
+    receiptDate: r.receipt_date ? String(r.receipt_date).slice(0,10) : null,
+    status: r.status || 'final', description: r.description,
+    eventDate: r.event_date ? String(r.event_date).slice(0,10) : null,
+    location: r.location, sentTo: r.sent_to
   };
 }
 function mapTestimonial(r){
@@ -109,27 +118,111 @@ function mapService(r){
 }
 
 // ---------------- email ----------------
-async function sendEmail(to, subject, html){
-  if(!RESEND_API_KEY || !to) return { skipped: true };
-  try{
-    var res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        "Authorization": "Bearer " + RESEND_API_KEY,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ from: FROM_EMAIL, to: [to], subject: subject, html: html })
-    });
-    if(!res.ok){
-      var errText = await res.text();
-      console.error("Resend error", res.status, errText);
-      return { ok:false, error: errText };
-    }
-    return { ok:true };
-  }catch(err){
-    console.error("Email send failed", err);
-    return { ok:false, error: err.message };
+async function sendEmail(to, subject, html){ return mail.sendMail(to, subject, html); }
+
+// ---------------- member IDs & logins ----------------
+// Member ID format: Samskar<number> (editable). Login: <JobTitle><number>@samskar.org
+function normCode(v){
+  var m = String(v || "").trim().match(/^samskar\s*-?\s*(\d+)$/i);
+  return m ? "Samskar" + parseInt(m[1], 10) : null;
+}
+async function codeTaken(code, exceptId){
+  var t = await sql`SELECT 1 FROM employees WHERE upper(member_code) = upper(${code}) AND id <> ${exceptId || ''}`;
+  return t.length > 0;
+}
+async function nextFreeCode(){
+  for(var i = 0; i < 50; i++){
+    var r = await sql`SELECT nextval('member_code_seq')::int AS n`;
+    var code = "Samskar" + r[0].n;
+    if(!(await codeTaken(code, ''))) return code;
   }
+  throw new Error("Couldn't find a free member ID.");
+}
+function loginFor(title, code){
+  var n = String(code || "").match(/(\d+)$/);
+  var t = String(title || "").replace(/[^A-Za-z0-9]/g, "");
+  return (t && n) ? (t + n[1] + "@samskar.org").toLowerCase() : null;
+}
+function tempPassword(){
+  var chars = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789", out = "";
+  var bytes = crypto.randomBytes(12);
+  for(var i = 0; i < 12; i++) out += chars[bytes[i] % chars.length];
+  return out;
+}
+function getBcrypt(){
+  try{ return require('bcryptjs'); }
+  catch(e){ throw new Error("bcryptjs isn't installed. Add \"bcryptjs\": \"^2.4.3\" to package.json."); }
+}
+function validEmail(v){ return /^\S+@\S+\.\S+$/.test(String(v || "").trim()); }
+
+// Create (or reset) the member's login on the Members site and email it.
+async function issueCredentials(emp, reset){
+  var bcrypt = getBcrypt();
+  var login = loginFor(emp.title, emp.member_code);
+  if(!login) throw new Error("A job title and a member ID like Samskar1 are needed to make a login.");
+  var password = tempPassword();
+  var hash = await bcrypt.hash(password, 10);
+  var haveLogin = false;
+  if(reset && emp.login_email){
+    var upd = await membersSql`UPDATE users SET password_hash=${hash}, active=true WHERE email=${emp.login_email} RETURNING id`;
+    haveLogin = upd.length > 0;
+    if(haveLogin) login = emp.login_email;
+  }
+  if(!haveLogin){
+    var clash = await membersSql`SELECT 1 FROM users WHERE email=${login}`;
+    if(clash.length) throw new Error("A login " + login + " already exists on the members site. Change the job title or member ID.");
+    await membersSql`INSERT INTO users (member_no, name, email, password_hash, role, unit, phone, job_title, contact_email)
+                     VALUES (${emp.member_code}, ${emp.name}, ${login}, ${hash}, 'member', ${emp.department || null}, ${emp.phone || null}, ${emp.title || null}, ${emp.email})`;
+  }
+  await sql`UPDATE employees SET login_email=${login}, credentials_sent_at=now() WHERE id=${emp.id}`;
+  var sent = await sendEmail(emp.email, "Your Samskar login details",
+    mail.credentialsEmail({ name: emp.name, title: emp.title, memberCode: emp.member_code, login: login, password: password }));
+  var emailed = !!(sent && sent.ok);
+  return { login: login, emailed: emailed, tempPassword: emailed ? undefined : password };
+}
+
+// Keep the Members site profile in step when an admin edits a confirmed member.
+async function syncMemberUser(emp){
+  if(!emp.login_email) return;
+  try{
+    await membersSql`UPDATE users SET name=${emp.name}, unit=${emp.department || null}, phone=${emp.phone || null},
+                     job_title=${emp.title || null}, contact_email=${emp.email || null}, member_no=${emp.member_code}
+                     WHERE email=${emp.login_email}`;
+  }catch(e){ console.error("Member sync failed", e && e.message); }
+}
+
+// ---------------- receipts: drafts -> final ----------------
+async function saveDraftReceipt(p, finalize, role){
+  var rows = await sql`SELECT * FROM receipts WHERE id=${p.id}`;
+  var cur = rows[0];
+  if(!cur) throw new Error("Receipt not found.");
+  if(cur.status !== 'draft') throw new Error("This receipt is already finalized.");
+  var amount = (p.amount === "" || p.amount == null) ? null : Number(p.amount);
+  if(finalize){
+    if(!(amount > 0)) throw new Error("Enter the final amount before finalizing.");
+    if(!validEmail(p.sendTo)) throw new Error("Enter the email address to send the receipt to.");
+    if(!String(p.clientName || "").trim()) throw new Error("Client name is required.");
+  }
+  await sql`UPDATE receipts SET client_name=${p.clientName}, contact=${p.contact || null}, service=${p.service || null},
+            amount=${amount}, payment_mode=${p.paymentMode || null}, project_id=${p.projectId || null},
+            note=${p.note || null}, description=${p.description || null},
+            event_date=${p.eventDate || null}, location=${p.location || null}
+            WHERE id=${p.id}`;
+  if(!finalize) return { receiptNo: null };
+
+  var codeRow = await sql`SELECT 'RCPT-' || LPAD(nextval('receipt_code_seq')::text, 4, '0') AS code`;
+  var receiptNo = codeRow[0].code;
+  var to = String(p.sendTo).trim();
+  await sql`UPDATE receipts SET status='final', receipt_no=${receiptNo}, issued_by=${role}, finalized_at=now(), sent_to=${to} WHERE id=${p.id}`;
+  var today = new Date().toISOString().slice(0,10);
+  var data = { receiptNo: receiptNo, receiptDate: today, clientName: p.clientName, service: p.service, eventDate: p.eventDate,
+               location: p.location, description: p.description, paymentMode: p.paymentMode, amount: amount };
+  var html = mail.receiptEmail(data);
+  var toCustomer = await sendEmail(to, "Your receipt from Samskar \u2014 " + receiptNo, html);
+  if(NOTIFY_EMAIL && NOTIFY_EMAIL.toLowerCase() !== to.toLowerCase()){
+    await sendEmail(NOTIFY_EMAIL, "Receipt issued: " + receiptNo + " \u2014 " + p.clientName, html);
+  }
+  return { receiptNo: receiptNo, emailed: !!(toCustomer && toCustomer.ok) };
 }
 
 // ---------------- Intake (form responses stored in SQL) ----------------
@@ -224,7 +317,7 @@ function last10(v){
 function normName(v){ return String(v || "").toLowerCase().replace(/[^a-z0-9]/g, ""); }
 
 async function annotateExisting(rows){
-  var receipts = await sql`SELECT receipt_no, client_name, contact FROM receipts`;
+  var receipts = await sql`SELECT receipt_no, client_name, contact FROM receipts WHERE status = 'final' AND receipt_no IS NOT NULL`;
   var kycs = await sql`SELECT full_name, phone FROM kyc_records`;
 
   return rows.map(function(row){
@@ -404,8 +497,14 @@ module.exports = async (req, res) => {
 
       // ---------- members ----------
       if(resource === 'members' && action === 'create'){
-        var codeRow = await sql`SELECT 'MBR-' || LPAD(nextval('member_code_seq')::text, 4, '0') AS code`;
-        var memberCode = codeRow[0].code;
+        var memberCode;
+        if(p.memberCode){
+          memberCode = normCode(p.memberCode);
+          if(!memberCode){ res.status(400).json({ ok:false, error:"Member ID must look like Samskar1." }); return; }
+          if(await codeTaken(memberCode, '')){ res.status(400).json({ ok:false, error:memberCode + " is already used by another member." }); return; }
+        } else {
+          memberCode = await nextFreeCode();
+        }
         await sql`
           INSERT INTO employees (id, member_code, name, title, department, email, phone, location, start_date, status)
           VALUES (${p.id}, ${memberCode}, ${p.name}, ${p.title||null}, ${p.department||null}, ${p.email||null}, ${p.phone||null}, ${p.location||null}, ${p.startDate||null}, ${p.status||'active'})
@@ -413,15 +512,39 @@ module.exports = async (req, res) => {
         res.status(200).json({ ok:true, memberCode: memberCode });
         return;
       }
-      if(resource === 'members' && action === 'update'){
+      if(resource === 'members' && (action === 'update' || action === 'confirm')){
+        var code2 = normCode(p.memberCode);
+        if(!code2){ res.status(400).json({ ok:false, error:"Member ID must look like Samskar1." }); return; }
+        if(await codeTaken(code2, p.id)){ res.status(400).json({ ok:false, error:code2 + " is already used by another member." }); return; }
+        if(action === 'confirm'){
+          if(!String(p.name || "").trim() || !String(p.title || "").trim()){ res.status(400).json({ ok:false, error:"Name and job title are needed to confirm a member." }); return; }
+          if(!validEmail(p.email)){ res.status(400).json({ ok:false, error:"A valid personal email is needed to send the login details." }); return; }
+        }
         await sql`
           UPDATE employees SET
-            name=${p.name}, title=${p.title||null}, department=${p.department||null},
+            member_code=${code2}, name=${p.name}, title=${p.title||null}, department=${p.department||null},
             email=${p.email||null}, phone=${p.phone||null}, location=${p.location||null},
             start_date=${p.startDate||null}, status=${p.status||'active'}
           WHERE id=${p.id}
         `;
+        var empRows = await sql`SELECT * FROM employees WHERE id=${p.id}`;
+        var emp = empRows[0];
+        if(!emp){ res.status(400).json({ ok:false, error:"Member not found." }); return; }
+        if(action === 'confirm' && !emp.login_email){
+          var made = await issueCredentials(emp, false);
+          res.status(200).json(Object.assign({ ok:true }, made));
+          return;
+        }
+        await syncMemberUser(emp);
         res.status(200).json({ ok:true });
+        return;
+      }
+      if(resource === 'members' && action === 'resetCredentials'){
+        var er = await sql`SELECT * FROM employees WHERE id=${p.id}`;
+        if(!er[0]){ res.status(400).json({ ok:false, error:"Member not found." }); return; }
+        if(!validEmail(er[0].email)){ res.status(400).json({ ok:false, error:"This member has no valid email on file." }); return; }
+        var again = await issueCredentials(er[0], true);
+        res.status(200).json(Object.assign({ ok:true }, again));
         return;
       }
       if(resource === 'members' && action === 'delete'){
@@ -431,16 +554,10 @@ module.exports = async (req, res) => {
       }
       if(resource === 'members' && action === 'invite'){
         if(!p.email){ res.status(400).json({ ok:false, error:"An email address is required to send an invite." }); return; }
-        var formLine = MEMBER_ENROLLMENT_FORM_URL
-          ? "<p>Please fill out this short enrollment form to get started: <a href=\"" + MEMBER_ENROLLMENT_FORM_URL + "\">" + MEMBER_ENROLLMENT_FORM_URL + "</a></p>"
-          : "<p>Your team will follow up shortly with next steps.</p>";
-        var result = await sendEmail(
-          p.email,
-          "You're invited to join the Samskar team",
-          "<p>Hi " + (p.name || "there") + ",</p><p>You've been invited to join the team at Samskar.</p>" +
-          formLine +
-          "<p>— The Roster</p>"
-        );
+        var formHtml = MEMBER_ENROLLMENT_FORM_URL
+          ? mail.layout("You're invited to join Samskar", "<p>Namaste " + mail.esc(p.name || "there") + ",</p><p>You've been invited to join the Samskar team. Please fill out this short enrollment form to get started:</p><p><a href=\"" + mail.esc(MEMBER_ENROLLMENT_FORM_URL) + "\" style=\"background:#6E1F2B;color:#E7C77E;text-decoration:none;padding:12px 24px;border-radius:999px;font-weight:600;display:inline-block;\">Open enrollment form</a></p>")
+          : mail.layout("You're invited to join Samskar", "<p>Namaste " + mail.esc(p.name || "there") + ",</p><p>You've been invited to join the Samskar team. We will follow up shortly with next steps.</p>");
+        var result = await sendEmail(p.email, "You're invited to join the Samskar team", formHtml);
         res.status(200).json({ ok:true, emailSkipped: !!result.skipped });
         return;
       }
@@ -449,17 +566,10 @@ module.exports = async (req, res) => {
       if(resource === 'leave' && action === 'create'){
         await sql`INSERT INTO leave_requests (id, employee_id, type, start_date, end_date, note, status, requested_by) VALUES (${p.id}, ${p.memberId}, ${p.type}, ${p.startDate}, ${p.endDate}, ${p.note||null}, 'pending', ${p.requestedBy||null})`;
         if(NOTIFY_EMAIL){
-          var leaveEmpRows = await sql`SELECT name FROM employees WHERE id=${p.memberId}`;
-          var leaveEmpName = (leaveEmpRows[0] && leaveEmpRows[0].name) || p.memberId;
-          await sendEmail(
-            NOTIFY_EMAIL,
-            "Leave request: " + leaveEmpName,
-            "<p><strong>Member:</strong> " + leaveEmpName + "</p>" +
-            "<p><strong>Type:</strong> " + p.type + "</p>" +
-            "<p><strong>Dates:</strong> " + p.startDate + " to " + p.endDate + "</p>" +
-            (p.note ? "<p><strong>Note:</strong> " + p.note + "</p>" : "") +
-            "<p>— The Roster</p>"
-          );
+          var lm = await sql`SELECT name FROM employees WHERE id=${p.memberId}`;
+          var lname = (lm[0] && lm[0].name) || p.memberId;
+          await sendEmail(NOTIFY_EMAIL, "Leave request: " + lname, mail.layout("Leave request: " + lname,
+            "<p><b>Type:</b> " + mail.esc(p.type) + "</p><p><b>Dates:</b> " + mail.esc(p.startDate) + " to " + mail.esc(p.endDate) + "</p>" + (p.note ? "<p><b>Note:</b> " + mail.esc(p.note) + "</p>" : "")));
         }
         res.status(200).json({ ok:true });
         return;
@@ -556,35 +666,29 @@ module.exports = async (req, res) => {
       if(resource === 'receipts' && action === 'create'){
         var rcptRow = await sql`SELECT 'RCPT-' || LPAD(nextval('receipt_code_seq')::text, 4, '0') AS code`;
         var receiptNo = rcptRow[0].code;
-        var receiptDate = p.receiptDate||new Date().toISOString().slice(0,10);
+        var receiptDate = p.receiptDate || new Date().toISOString().slice(0,10);
         await sql`
-          INSERT INTO receipts (id, receipt_no, client_name, contact, service, amount, payment_mode, project_id, note, issued_by, receipt_date)
-          VALUES (${p.id}, ${receiptNo}, ${p.clientName}, ${p.contact||null}, ${p.service||null}, ${p.amount}, ${p.paymentMode||null}, ${p.projectId||null}, ${p.note||null}, ${p.issuedBy||null}, ${receiptDate})
+          INSERT INTO receipts (id, receipt_no, client_name, contact, service, amount, payment_mode, project_id, note, issued_by, receipt_date, status)
+          VALUES (${p.id}, ${receiptNo}, ${p.clientName}, ${p.contact||null}, ${p.service||null}, ${p.amount}, ${p.paymentMode||null}, ${p.projectId||null}, ${p.note||null}, ${p.issuedBy||null}, ${receiptDate}, 'final')
         `;
-        // If "contact" looks like an email, send the customer their receipt.
         if(p.contact && p.contact.indexOf("@") !== -1){
-          await sendEmail(
-            p.contact,
-            "Your receipt from Samskar — " + receiptNo,
-            "<p>Namaste " + p.clientName + ",</p>" +
-            "<p>Your project has been received. Here is your receipt:</p>" +
-            "<p><strong>Receipt No:</strong> " + receiptNo + "</p>" +
-            (p.service ? "<p><strong>Service:</strong> " + p.service + "</p>" : "") +
-            "<p><strong>Amount:</strong> " + p.amount + "</p>" +
-            (p.paymentMode ? "<p><strong>Payment mode:</strong> " + p.paymentMode + "</p>" : "") +
-            "<p><strong>Date:</strong> " + receiptDate + "</p>" +
-            "<p>— Samskar</p>"
-          );
-          if(NOTIFY_EMAIL){
-            await sendEmail(
-              NOTIFY_EMAIL,
-              "Receipt issued: " + receiptNo,
-              "<p><strong>Client:</strong> " + p.clientName + " (" + p.contact + ")</p>" +
-              "<p><strong>Amount:</strong> " + p.amount + "</p>"
-            );
+          var rhtml = mail.receiptEmail({ receiptNo: receiptNo, receiptDate: receiptDate, clientName: p.clientName, service: p.service,
+                                          paymentMode: p.paymentMode, amount: p.amount, description: p.note });
+          await sendEmail(p.contact, "Your receipt from Samskar \u2014 " + receiptNo, rhtml);
+          if(NOTIFY_EMAIL && NOTIFY_EMAIL.toLowerCase() !== String(p.contact).toLowerCase()){
+            await sendEmail(NOTIFY_EMAIL, "Receipt issued: " + receiptNo, rhtml);
           }
         }
         res.status(200).json({ ok:true, receiptNo: receiptNo });
+        return;
+      }
+      if(resource === 'receipts' && (action === 'finalize' || action === 'updateDraft')){
+        try{
+          var fin = await saveDraftReceipt(p, action === 'finalize', role);
+          res.status(200).json(Object.assign({ ok:true }, fin));
+        }catch(e){
+          res.status(400).json({ ok:false, error: e.message });
+        }
         return;
       }
       if(resource === 'receipts' && action === 'delete'){

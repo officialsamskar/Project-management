@@ -9,6 +9,7 @@
 
 const crypto = require("crypto");
 const { neon } = require("@neondatabase/serverless");
+const mail = require("./_mail");
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const SIGNING_SECRET = process.env.TALLY_SIGNING_SECRET || "";
@@ -72,6 +73,59 @@ function fieldText(f){
   return text;
 }
 
+
+// ---------------- what happens after each form ----------------
+function cleanDate(v){ return /^\d{4}-\d{2}-\d{2}$/.test(String(v || "")) ? String(v) : null; }
+function validEmail(v){ return /^\S+@\S+\.\S+$/.test(String(v || "").trim()); }
+
+async function afterSubmission(formKey, row, id, isNew){
+  var email = String(row["Email"] || "").trim();
+
+  // KYC done -> confirmation email + the booking form to use from now on.
+  if(formKey === "kyc"){
+    if(isNew && validEmail(email)){
+      var name = row["Full Name"];
+      await mail.sendMail(email, "We received your KYC details \u2014 Samskar", mail.kycConfirmation(name));
+      await mail.sendMail(email, "Your Samskar booking form", mail.bookingFormEmail(name));
+    }
+    return;
+  }
+
+  // Booking -> draft receipt in the Roster (no budget/amount) + customer
+  // confirmation + alert to the admin.
+  if(formKey === "bookings"){
+    var b = {
+      name: row["Client Name"] || "", phone: row["Phone"] || "", email: email,
+      service: row["Service"] || "", eventDate: cleanDate(row["Event Date"]),
+      location: row["Location"] || "", notes: row["Notes"] || ""
+    };
+    var contact = validEmail(email) ? email : b.phone;
+    var today = new Date().toISOString().slice(0, 10);
+    // Editing a booking updates the draft, but only while it is still a draft.
+    await sql`INSERT INTO receipts (id, receipt_no, client_name, contact, service, amount, payment_mode, project_id, note, issued_by, receipt_date, status, submission_id, event_date, location, description)
+              VALUES (${"bk-" + id}, NULL, ${b.name}, ${contact || null}, ${b.service || null}, NULL, NULL, NULL, NULL, 'Booking form', ${today}, 'draft', ${id}, ${b.eventDate}, ${b.location || null}, ${b.notes || null})
+              ON CONFLICT (submission_id) DO UPDATE SET
+                client_name = EXCLUDED.client_name, contact = EXCLUDED.contact, service = EXCLUDED.service,
+                event_date = EXCLUDED.event_date, location = EXCLUDED.location, description = EXCLUDED.description
+              WHERE receipts.status = 'draft'`;
+    if(isNew){
+      if(validEmail(email)){
+        await mail.sendMail(email, "We received your booking \u2014 Samskar", mail.bookingConfirmation(b));
+      }
+      await mail.sendMail(mail.ADMIN_EMAIL, "New booking: " + b.name, mail.adminBookingAlert(b));
+    }
+    return;
+  }
+
+  // Member enrollment -> confirmation to the person who filled it in.
+  if(formKey === "enrollment"){
+    if(isNew && validEmail(email)){
+      await mail.sendMail(email, "We received your enrollment \u2014 Samskar", mail.enrollmentConfirmation(row["Full Name"]));
+    }
+    return;
+  }
+}
+
 module.exports = async (req, res) => {
   if(req.method !== "POST"){
     res.status(405).json({ ok:false, error:"Method not allowed." });
@@ -116,10 +170,22 @@ module.exports = async (req, res) => {
 
     var submittedAt = data.createdAt || event.createdAt || new Date().toISOString();
 
-    // Tally may deliver the same event more than once; the id makes this safe.
-    await sql`INSERT INTO intake_submissions (id, form_key, submitted_at, data)
+    // Save the answers. If the same submission arrives again (Tally re-sends
+    // it when a respondent EDITS their answers) the stored answers are updated
+    // instead of ignored. "inserted" is true only the first time.
+    var saved = await sql`INSERT INTO intake_submissions (id, form_key, submitted_at, data)
               VALUES (${String(id)}, ${formKey}, ${submittedAt}, ${JSON.stringify(row)}::jsonb)
-              ON CONFLICT (id) DO NOTHING`;
+              ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data
+              RETURNING (xmax = 0) AS inserted`;
+    var isNew = !!(saved[0] && saved[0].inserted);
+
+    // Automatic emails / draft receipt. Never let a failure here make Tally
+    // retry (the answers are already safely saved).
+    try {
+      await afterSubmission(formKey, row, String(id), isNew);
+    } catch (e) {
+      console.error("Follow-up after submission failed", e);
+    }
 
     res.status(200).json({ ok:true });
   } catch (err) {
